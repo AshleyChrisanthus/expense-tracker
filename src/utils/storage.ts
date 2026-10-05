@@ -1,0 +1,201 @@
+import { PaymentMode, Transaction, ExpenseDataState } from '../types/expense';
+
+const STORAGE_KEY = 'expense_tracker_state_v1';
+
+export const DEFAULT_PAYMENT_MODES: PaymentMode[] = [
+  {
+    id: 'bank',
+    name: 'Bank Account',
+    icon: 'landmark',
+    color: '#0a84ff',
+    isSystem: true
+  },
+  {
+    id: 'forex',
+    name: 'Forex Card',
+    icon: 'credit-card',
+    color: '#8b5cf6',
+    isSystem: true
+  },
+  {
+    id: 'cash',
+    name: 'Cash',
+    icon: 'banknote',
+    color: '#10b981',
+    isSystem: true
+  }
+];
+
+export const DEFAULT_CATEGORIES = [
+  'Rent',
+  'Groceries',
+  'Coffee & Dining',
+  'Transport',
+  'Education & Fees',
+  'Bills & Utilities',
+  'Income / Deposit',
+  'Transfers',
+  'Other'
+];
+
+export const INITIAL_TRANSACTIONS: Transaction[] = [];
+
+export function loadExpenseData(): ExpenseDataState {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && Array.isArray(parsed.transactions) && Array.isArray(parsed.paymentModes)) {
+        return parsed;
+      }
+    }
+  } catch (e) {
+    console.error('Failed to load expense state from localStorage:', e);
+  }
+
+  // Initial state with user's keep sample data
+  const defaultState: ExpenseDataState = {
+    version: 1,
+    paymentModes: DEFAULT_PAYMENT_MODES,
+    transactions: INITIAL_TRANSACTIONS,
+    categories: DEFAULT_CATEGORIES
+  };
+  saveExpenseData(defaultState);
+  return defaultState;
+}
+
+export function saveExpenseData(state: ExpenseDataState): void {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  } catch (e) {
+    console.error('Failed to save expense state to localStorage:', e);
+  }
+}
+
+export function exportToJsonFile(state: ExpenseDataState): void {
+  const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(state, null, 2));
+  const downloadAnchor = document.createElement('a');
+  const dateStr = new Date().toISOString().split('T')[0];
+  downloadAnchor.setAttribute("href", dataStr);
+  downloadAnchor.setAttribute("download", `expenses-backup-${dateStr}.json`);
+  document.body.appendChild(downloadAnchor);
+  downloadAnchor.click();
+  downloadAnchor.remove();
+}
+
+export function validateImportData(data: any): data is ExpenseDataState {
+  if (!data || typeof data !== 'object') return false;
+  if (!Array.isArray(data.transactions) || !Array.isArray(data.paymentModes)) return false;
+  return true;
+}
+
+// Google Keep text parser to easily paste from Keep notes!
+export function parseGoogleKeepText(text: string, currentModes: PaymentMode[]): Partial<Transaction>[] {
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  const results: Partial<Transaction>[] = [];
+  let currentDate = new Date().toISOString().split('T')[0];
+
+  const monthNames: Record<string, string> = {
+    january: '01', february: '02', march: '03', april: '04', may: '05', june: '06',
+    july: '07', august: '08', september: '09', october: '10', november: '11', december: '12'
+  };
+
+  for (const line of lines) {
+    // Check if line is a date (e.g. "March 31, 2024" or "March 31")
+    const dateMatch = line.match(/^([a-zA-Z]+)\s+(\d{1,2})(?:,?\s*(\d{4}))?/i);
+    if (dateMatch) {
+      const monthStr = dateMatch[1].toLowerCase();
+      const day = dateMatch[2].padStart(2, '0');
+      const year = dateMatch[3] || '2024';
+      if (monthNames[monthStr]) {
+        currentDate = `${year}-${monthNames[monthStr]}-${day}`;
+        continue;
+      }
+    }
+
+    // Check if line is a transfer (e.g. "Transferred 1000$ from forex to bank(+7.5$ charge)")
+    const transferMatch = line.match(/transfer(?:red)?\s*(\d+(?:\.\d+)?)\$?\s*from\s*([a-zA-Z0-9_\s]+)\s*to\s*([a-zA-Z0-9_\s]+)(?:\(\+?(\d+(?:\.\d+)?)\$?\s*(?:charge|fee)?\))?/i);
+    if (transferMatch) {
+      const amount = parseFloat(transferMatch[1]);
+      const fromModeRaw = transferMatch[2].trim().toLowerCase();
+      const toModeRaw = transferMatch[3].trim().toLowerCase();
+      const fee = transferMatch[4] ? parseFloat(transferMatch[4]) : 0;
+      
+      const fromMode = currentModes.find(m => m.id.toLowerCase() === fromModeRaw || m.name.toLowerCase().includes(fromModeRaw))?.id || 'bank';
+      const toMode = currentModes.find(m => m.id.toLowerCase() === toModeRaw || m.name.toLowerCase().includes(toModeRaw))?.id || 'bank';
+
+      results.push({
+        id: 'imported-' + Math.random().toString(36).substring(2, 9),
+        date: currentDate,
+        amount,
+        type: 'transfer',
+        paymentModeId: fromMode,
+        toPaymentModeId: toMode,
+        fee,
+        category: 'Transfers',
+        description: line,
+        notes: fee > 0 ? `+${fee}$ fee` : undefined,
+        status: 'completed',
+        createdAt: Date.now()
+      });
+      continue;
+    }
+
+    // Check if income / deposit (e.g. "Put 100$ in bank account")
+    const incomeMatch = line.match(/put\s*(\d+(?:\.\d+)?)\$?\s*in\s*([a-zA-Z0-9_\s]+)/i);
+    if (incomeMatch) {
+      const amount = parseFloat(incomeMatch[1]);
+      const modeRaw = incomeMatch[2].trim().toLowerCase();
+      const mode = currentModes.find(m => m.id.toLowerCase() === modeRaw || m.name.toLowerCase().includes(modeRaw))?.id || 'bank';
+      results.push({
+        id: 'imported-' + Math.random().toString(36).substring(2, 9),
+        date: currentDate,
+        amount,
+        type: 'income',
+        paymentModeId: mode,
+        category: 'Income / Deposit',
+        description: line,
+        status: 'completed',
+        createdAt: Date.now()
+      });
+      continue;
+    }
+
+    // Check if standard expense: "170$-from bank- room rent" or "2.03$-from forex- convenience store coffee" or "170$-cash- room rent"
+    const expenseMatch = line.match(/^(\d+(?:\.\d+)?)\$?\s*[-–]\s*(?:from\s*)?([a-zA-Z0-9_\s]+)\s*[-–]\s*(.*)$/i);
+    if (expenseMatch) {
+      const amount = parseFloat(expenseMatch[1]);
+      const modeRaw = expenseMatch[2].trim().toLowerCase();
+      const desc = expenseMatch[3].trim();
+      const mode = currentModes.find(m => m.id.toLowerCase() === modeRaw || m.name.toLowerCase().includes(modeRaw))?.id || 'bank';
+      
+      let category = 'Other';
+      const descLower = desc.toLowerCase();
+      if (descLower.includes('rent')) category = 'Rent';
+      else if (descLower.includes('grocery') || descLower.includes('aldi') || descLower.includes('coles') || descLower.includes('wolworths')) category = 'Groceries';
+      else if (descLower.includes('coffee') || descLower.includes('kfc') || descLower.includes('lunch')) category = 'Coffee & Dining';
+      else if (descLower.includes('transport') || descLower.includes('myki')) category = 'Transport';
+      else if (descLower.includes('rmit') || descLower.includes('fee') || descLower.includes('amenities')) category = 'Education & Fees';
+
+      results.push({
+        id: 'imported-' + Math.random().toString(36).substring(2, 9),
+        date: currentDate,
+        amount,
+        type: 'expense',
+        paymentModeId: mode,
+        category,
+        description: desc,
+        status: 'completed',
+        createdAt: Date.now()
+      });
+      continue;
+    }
+
+    // Ignore headers like "Total-16$", "Total Expenses=36$"
+    if (/total/i.test(line)) {
+      continue;
+    }
+  }
+
+  return results;
+}
