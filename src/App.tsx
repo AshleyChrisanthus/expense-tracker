@@ -29,6 +29,7 @@ import { loadExpenseData, saveExpenseData } from './utils/storage';
 import { TransactionModal } from './components/TransactionModal';
 import { PaymentModesModal } from './components/PaymentModesModal';
 import { ImportExportModal } from './components/ImportExportModal';
+import { db } from './db';
 
 export const App: React.FC = () => {
   // Theme state
@@ -37,7 +38,7 @@ export const App: React.FC = () => {
   });
   const [isThemeModalOpen, setIsThemeModalOpen] = useState(false);
 
-  // App data state (stored in localStorage)
+  // App data state (stored in Dexie IndexedDB + localStorage sync)
   const [dataState, setDataState] = useState<ExpenseDataState>(() => loadExpenseData());
 
   // Modal states
@@ -53,7 +54,21 @@ export const App: React.FC = () => {
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>('all');
   const [selectedMonthFilter, setSelectedMonthFilter] = useState<string>('all');
 
-  // Save changes to localStorage
+  // Load from Dexie on mount
+  useEffect(() => {
+    db.initDatabase().then(initResult => {
+      setDataState({
+        version: 1,
+        transactions: initResult.transactions,
+        paymentModes: initResult.paymentModes,
+        categories: initResult.categories
+      });
+    }).catch(err => {
+      console.warn('Dexie IndexedDB initialization fallback:', err);
+    });
+  }, []);
+
+  // Save changes to localStorage cache
   useEffect(() => {
     saveExpenseData(dataState);
   }, [dataState]);
@@ -78,7 +93,13 @@ export const App: React.FC = () => {
   };
 
   // Transaction CRUD handlers
-  const handleSaveTransaction = (transaction: Transaction) => {
+  const handleSaveTransaction = async (transaction: Transaction) => {
+    try {
+      await db.putTransaction(transaction);
+    } catch (e) {
+      console.error('Dexie save transaction failed:', e);
+    }
+
     setDataState(prev => {
       const exists = prev.transactions.some(t => t.id === transaction.id);
       const newTransactions = exists
@@ -97,8 +118,14 @@ export const App: React.FC = () => {
     });
   };
 
-  const handleDeleteTransaction = (id: string) => {
+  const handleDeleteTransaction = async (id: string) => {
     if (confirm('Delete this transaction?')) {
+      try {
+        await db.deleteTransaction(id);
+      } catch (e) {
+        console.error('Dexie delete transaction failed:', e);
+      }
+
       setDataState(prev => ({
         ...prev,
         transactions: prev.transactions.filter(t => t.id !== id)
@@ -106,11 +133,26 @@ export const App: React.FC = () => {
     }
   };
 
-  const handleSavePaymentModes = (modes: PaymentMode[]) => {
+  const handleSavePaymentModes = async (modes: PaymentMode[]) => {
+    try {
+      await db.savePaymentModes(modes);
+    } catch (e) {
+      console.error('Dexie save modes failed:', e);
+    }
+
     setDataState(prev => ({
       ...prev,
       paymentModes: modes
     }));
+  };
+
+  const handleUpdateDataState = async (newState: ExpenseDataState) => {
+    try {
+      await db.importData(newState, 'replace');
+    } catch (e) {
+      console.error('Dexie import failed:', e);
+    }
+    setDataState(newState);
   };
 
   // Available months from data for filter dropdown
@@ -751,7 +793,7 @@ export const App: React.FC = () => {
         isOpen={isImportExportOpen}
         onClose={() => setIsImportExportOpen(false)}
         currentState={dataState}
-        onUpdateState={setDataState}
+        onUpdateState={handleUpdateDataState}
       />
     </div>
   );
