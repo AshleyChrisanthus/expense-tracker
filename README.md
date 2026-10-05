@@ -8,8 +8,13 @@ A sleek, Apple-inspired glassmorphism expense tracking web app built with React,
 
 ## ✨ Features
 
-- 💎 **Apple Glassmorphism Design System**:
-  - Frosted translucent panels with backdrop blur.
+- 📦 **Single-File Serverless Standalone HTML**:
+  - Compiled using `vite-plugin-singlefile` directly into one self-contained `dist/index.html`.
+  - Zero external CDN dependencies or servers: runnable instantly by double-clicking or loading via `file://`.
+- 💾 **Local-First Dexie (IndexedDB) Architecture**:
+  - Full client-side persistent database powered by Dexie.js (IndexedDB) with localStorage fallback synchronization.
+- 🎨 **Tailwind CSS v4 & Glassmorphic Theme System**:
+  - Powered by `@tailwindcss/vite` and Tailwind v4.
   - 7 curated presets (*Modern Apple, Ocean Sapphire, Cyberpunk Neon, Emerald Forest, Sunset Amber, Rose Velvet, Nordic Frost*).
   - Dark / Light mode switching with zero flash on reload.
   - Granular custom accent color picker.
@@ -29,8 +34,6 @@ A sleek, Apple-inspired glassmorphism expense tracking web app built with React,
   - 1-click JSON backup export (`expenses-backup-YYYY-MM-DD.json`).
   - JSON file import with Merge or Replace options.
   - **Live Google Keep Text Parser**: Paste raw Keep note text directly to automatically parse dates, amounts, accounts, and descriptions.
-- 🔒 **Privacy First & Local Storage**:
-  - All data is securely persisted in browser `localStorage`. No accounts or server dependencies required.
 
 ---
 
@@ -38,9 +41,10 @@ A sleek, Apple-inspired glassmorphism expense tracking web app built with React,
 
 - **Framework**: React 18
 - **Language**: TypeScript (strict mode)
-- **Styling**: Tailwind CSS + Custom CSS Variables Glass Theme System
+- **Styling**: Tailwind CSS v4 (`@tailwindcss/vite`)
+- **Database**: Dexie.js 4 (IndexedDB) + LocalStorage cache
+- **Bundler**: Vite 6 + `vite-plugin-singlefile`
 - **Icons**: Lucide React
-- **Build Tool**: Vite
 
 ---
 
