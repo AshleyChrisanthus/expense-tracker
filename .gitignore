@@ -14,6 +14,17 @@ dist-ssr
 *.tsbuildinfo
 scratch/
 
+# Personal data files & spreadsheets (Never commit to repo)
+*.csv
+*.tsv
+*.xlsx
+*.xls
+data/
+
+# User exports & backups
+exports/*
+!exports/.gitkeep
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

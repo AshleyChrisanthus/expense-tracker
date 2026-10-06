@@ -13,13 +13,19 @@ if (fs.existsSync(rootIndexHtml) && !fs.existsSync(devIndexHtml)) {
 }
 
 const distIndexHtml = path.resolve(process.cwd(), 'dist/index.html');
+const distDevIndexHtml = path.resolve(process.cwd(), 'dist/index.dev.html');
 
-if (!fs.existsSync(distIndexHtml)) {
-  console.error('dist/index.html does not exist. Run vite build first.');
+let distPath = distIndexHtml;
+if (!fs.existsSync(distPath) && fs.existsSync(distDevIndexHtml)) {
+  distPath = distDevIndexHtml;
+}
+
+if (!fs.existsSync(distPath)) {
+  console.error('Neither dist/index.html nor dist/index.dev.html exists. Run vite build first.');
   process.exit(1);
 }
 
-let html = fs.readFileSync(distIndexHtml, 'utf8');
+let html = fs.readFileSync(distPath, 'utf8');
 
 // 2. Clean up any modulepreload links
 html = html.replace(/<link\s+rel="modulepreload"[^>]*>/gi, '');
