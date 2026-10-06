@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   X, 
   Download, 
@@ -9,7 +9,12 @@ import {
   Check, 
   AlertTriangle,
   Copy,
-  PlusCircle
+  PlusCircle,
+  FolderSync,
+  FolderCheck,
+  FolderX,
+  History,
+  FileCheck2
 } from 'lucide-react';
 import { ExpenseDataState, PaymentMode, Transaction } from '../types/expense';
 import { 
@@ -20,6 +25,16 @@ import {
   DEFAULT_PAYMENT_MODES,
   DEFAULT_CATEGORIES
 } from '../utils/storage';
+import { 
+  saveExportToLocal, 
+  linkBackupDirectory, 
+  getLinkedDirectoryHandle, 
+  unlinkBackupDirectory, 
+  getLocalExportsList, 
+  readLinkedExportFile,
+  ExportFileInfo,
+  isFileSystemAccessSupported
+} from '../services/exportService';
 
 interface ImportExportModalProps {
   isOpen: boolean;
@@ -40,9 +55,104 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
   const [parsedPreview, setParsedPreview] = useState<Partial<Transaction>[]>([]);
   const [importStatus, setImportStatus] = useState<string | null>(null);
 
+  // Linked exports folder state
+  const [linkedFolderName, setLinkedFolderName] = useState<string | null>(null);
+  const [exportsList, setExportsList] = useState<ExportFileInfo[]>([]);
+  const [isSavingExport, setIsSavingExport] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      loadLinkedFolderStatus();
+    }
+  }, [isOpen]);
+
+  const loadLinkedFolderStatus = async () => {
+    try {
+      const handle = await getLinkedDirectoryHandle();
+      if (handle) {
+        setLinkedFolderName(handle.name);
+      } else {
+        setLinkedFolderName(null);
+      }
+      const files = await getLocalExportsList();
+      setExportsList(files);
+    } catch (err) {
+      console.warn('Could not read linked directory:', err);
+    }
+  };
+
   if (!isOpen) return null;
 
-  const handleExport = () => {
+  const handleLinkDirectory = async () => {
+    try {
+      const handle = await linkBackupDirectory();
+      setLinkedFolderName(handle.name);
+      setImportStatus(`Successfully linked to folder: "${handle.name}". Permission saved!`);
+      const files = await getLocalExportsList();
+      setExportsList(files);
+    } catch (err: any) {
+      setImportStatus(err.message || 'Failed to link directory.');
+    }
+  };
+
+  const handleUnlinkDirectory = async () => {
+    await unlinkBackupDirectory();
+    setLinkedFolderName(null);
+    setExportsList([]);
+    setImportStatus('Exports folder unlinked.');
+  };
+
+  const handleAutoExport = async () => {
+    setIsSavingExport(true);
+    try {
+      const res = await saveExportToLocal(currentState);
+      if (res.success) {
+        setImportStatus(`Backup successfully saved: ${res.filename} (${res.method === 'linked_folder' ? 'Saved to exports/ folder' : res.method})`);
+        const files = await getLocalExportsList();
+        setExportsList(files);
+      } else {
+        setImportStatus('Export failed: ' + (res.error || 'Unknown error'));
+      }
+    } catch (err: any) {
+      setImportStatus('Export error: ' + (err.message || 'Cancelled'));
+    } finally {
+      setIsSavingExport(false);
+    }
+  };
+
+  const handleRestoreFromLinkedFile = async (filename: string) => {
+    if (!confirm(`Restore transactions from ${filename}? Mode: ${importMode === 'replace' ? 'Replace All' : 'Merge'}`)) {
+      return;
+    }
+
+    try {
+      const data = await readLinkedExportFile(filename);
+      if (validateImportData(data)) {
+        if (importMode === 'replace') {
+          onUpdateState(data);
+        } else {
+          // Merge
+          const existingIds = new Set(currentState.transactions.map(t => t.id));
+          const newTransactions = data.transactions.filter(t => !existingIds.has(t.id));
+          const modeMap = new Map<string, PaymentMode>();
+          currentState.paymentModes.forEach(m => modeMap.set(m.id, m));
+          data.paymentModes.forEach(m => modeMap.set(m.id, m));
+
+          onUpdateState({
+            version: 1,
+            paymentModes: Array.from(modeMap.values()),
+            transactions: [...newTransactions, ...currentState.transactions],
+            categories: Array.from(new Set([...currentState.categories, ...data.categories]))
+          });
+        }
+        setImportStatus(`Successfully restored ${data.transactions.length} records from ${filename}!`);
+      }
+    } catch (err: any) {
+      setImportStatus('Error restoring file: ' + err.message);
+    }
+  };
+
+  const handleStandardDownload = () => {
     exportToJsonFile(currentState);
     setImportStatus('Backup JSON downloaded successfully!');
   };
@@ -64,7 +174,6 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
             const existingIds = new Set(currentState.transactions.map(t => t.id));
             const newTransactions = parsed.transactions.filter(t => !existingIds.has(t.id));
             
-            // Merge modes
             const modeMap = new Map<string, PaymentMode>();
             currentState.paymentModes.forEach(m => modeMap.set(m.id, m));
             parsed.paymentModes.forEach(m => modeMap.set(m.id, m));
@@ -163,7 +272,7 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
             </div>
             <div>
               <h2 className="text-lg font-semibold text-[var(--text-primary)]">Data Management</h2>
-              <p className="text-xs text-[var(--text-secondary)]">JSON export/import and Google Keep note parser</p>
+              <p className="text-xs text-[var(--text-secondary)]">Auto-exports folder, JSON backups & Google Keep parser</p>
             </div>
           </div>
           <button 
@@ -184,7 +293,7 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
                 : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
             }`}
           >
-            JSON Files
+            Exports Folder & JSON
           </button>
           <button
             onClick={() => { setActiveTab('keep'); setImportStatus(null); }}
@@ -216,26 +325,108 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
           </div>
         )}
 
-        {/* Tab 1: JSON Export & Import */}
+        {/* Tab 1: Exports Folder & JSON */}
         {activeTab === 'json' && (
-          <div className="space-y-4">
-            <div className="p-4 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-light)] flex items-center justify-between">
-              <div>
-                <h4 className="text-sm font-semibold text-[var(--text-primary)]">Export Backup</h4>
-                <p className="text-xs text-[var(--text-secondary)]">Download all {currentState.transactions.length} records as a JSON file</p>
+          <div className="space-y-4 max-h-[62vh] overflow-y-auto pr-1">
+            {/* Auto-Export to Folder Card */}
+            <div className="p-4 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-light)] space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 rounded-lg bg-emerald-500/10 text-emerald-400">
+                    <FolderSync className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-semibold text-[var(--text-primary)]">Auto-Export to Project Folder</h4>
+                    <p className="text-xs text-[var(--text-secondary)]">Save JSON backups directly into the `exports/` folder</p>
+                  </div>
+                </div>
+
+                {linkedFolderName ? (
+                  <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-medium flex items-center gap-1">
+                    <FolderCheck className="w-3 h-3" /> Linked: {linkedFolderName}
+                  </span>
+                ) : (
+                  <span className="text-[11px] px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 font-medium">
+                    Folder Not Linked
+                  </span>
+                )}
               </div>
-              <button
-                onClick={handleExport}
-                className="apple-btn apple-btn-primary text-xs"
-              >
-                <Download className="w-4 h-4" /> Download JSON
-              </button>
+
+              {/* Action buttons */}
+              <div className="flex items-center gap-2 flex-wrap">
+                {isFileSystemAccessSupported() && !linkedFolderName && (
+                  <button
+                    onClick={handleLinkDirectory}
+                    className="apple-btn apple-btn-secondary text-xs"
+                  >
+                    <FolderSync className="w-3.5 h-3.5 text-[var(--accent)]" /> Link `exports/` Folder (One-Time)
+                  </button>
+                )}
+
+                <button
+                  onClick={handleAutoExport}
+                  disabled={isSavingExport}
+                  className="apple-btn apple-btn-primary text-xs"
+                >
+                  <FileCheck2 className="w-3.5 h-3.5" />
+                  {isSavingExport ? 'Saving...' : 'Auto-Save Backup Now'}
+                </button>
+
+                {linkedFolderName && (
+                  <button
+                    onClick={handleUnlinkDirectory}
+                    className="apple-btn apple-btn-secondary text-xs text-rose-400 hover:text-rose-500"
+                    title="Unlink folder"
+                  >
+                    <FolderX className="w-3.5 h-3.5" /> Unlink
+                  </button>
+                )}
+
+                <button
+                  onClick={handleStandardDownload}
+                  className="apple-btn apple-btn-secondary text-xs"
+                  title="Download copy to browser downloads folder"
+                >
+                  <Download className="w-3.5 h-3.5" /> Download .json
+                </button>
+              </div>
+
+              {/* Linked Folder Recent Backups List */}
+              {exportsList.length > 0 && (
+                <div className="pt-2 border-t border-[var(--border-light)] space-y-2">
+                  <div className="flex items-center justify-between text-xs text-[var(--text-secondary)]">
+                    <span className="font-semibold flex items-center gap-1">
+                      <History className="w-3 h-3" /> Backups in `exports/` folder ({exportsList.length})
+                    </span>
+                    <span className="text-[10px]">Click restore to load</span>
+                  </div>
+                  <div className="max-h-28 overflow-y-auto space-y-1.5 pr-1">
+                    {exportsList.slice(0, 5).map(f => (
+                      <div key={f.filename} className="flex items-center justify-between p-2 rounded-lg bg-[var(--bg-primary)]/60 text-xs border border-[var(--border-light)]/50">
+                        <div className="truncate mr-2">
+                          <span className="font-medium text-[var(--text-primary)] font-mono text-[11px] block truncate">{f.filename}</span>
+                          <span className="text-[10px] text-[var(--text-secondary)]">
+                            {new Date(f.modifiedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} • {(f.size / 1024).toFixed(1)} KB
+                          </span>
+                        </div>
+                        <button
+                          onClick={() => handleRestoreFromLinkedFile(f.filename)}
+                          className="apple-btn apple-btn-secondary text-[11px] py-1 px-2.5 shrink-0"
+                        >
+                          Restore
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
+            {/* Import Backup File */}
             <div className="p-4 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-light)] space-y-3">
               <div>
-                <h4 className="text-sm font-semibold text-[var(--text-primary)]">Import JSON Backup</h4>
-                <p className="text-xs text-[var(--text-secondary)]">Load transactions and payment modes from an exported JSON file</p>
+                <h4 className="text-sm font-semibold text-[var(--text-primary)]">Import JSON File</h4>
+                <p className="text-xs text-[var(--text-secondary)]">Load an existing backup JSON file from your computer</p>
               </div>
 
               <div className="flex items-center gap-4 text-xs text-[var(--text-secondary)]">
@@ -353,7 +544,7 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
                 <h4 className="text-sm font-semibold text-red-400 flex items-center gap-1.5">
                   <AlertTriangle className="w-4 h-4" /> Clear All Transactions
                 </h4>
-                <p className="text-xs text-[var(--text-secondary)]">Delete all recorded transactions from browser local storage</p>
+                <p className="text-xs text-[var(--text-secondary)]">Delete all recorded transactions from browser database</p>
               </div>
               <button
                 onClick={handleClearAll}
