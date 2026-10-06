@@ -32,7 +32,7 @@ export class ExpenseDB extends Dexie {
     });
   }
 
-  // Prepopulate with Google Keep seed data or migrate from localStorage if present
+  // Prepopulate with Google Sheet + Keep seed data (v2) or upgrade
   async initDatabase(): Promise<{
     transactions: Transaction[];
     paymentModes: PaymentMode[];
@@ -40,43 +40,26 @@ export class ExpenseDB extends Dexie {
   }> {
     const txCount = await this.transactions.count();
     const modeCount = await this.paymentModes.count();
+    const dataVer = localStorage.getItem('expense_data_version');
 
-    if (txCount === 0 || modeCount === 0) {
-      // Check if existing localStorage state exists
-      let seedTx = INITIAL_TRANSACTIONS;
-      let seedModes = DEFAULT_PAYMENT_MODES;
-      let seedCats = DEFAULT_CATEGORIES;
-
-      try {
-        const local = localStorage.getItem('expense_tracker_state_v1');
-        if (local) {
-          const parsed = JSON.parse(local);
-          if (Array.isArray(parsed.transactions) && parsed.transactions.length > 0) {
-            seedTx = parsed.transactions;
-          }
-          if (Array.isArray(parsed.paymentModes) && parsed.paymentModes.length > 0) {
-            seedModes = parsed.paymentModes;
-          }
-          if (Array.isArray(parsed.categories) && parsed.categories.length > 0) {
-            seedCats = parsed.categories;
-          }
-        }
-      } catch (e) {
-        console.warn('Could not read legacy localStorage:', e);
-      }
-
+    if (txCount === 0 || modeCount === 0 || dataVer !== 'v2' || txCount < 50) {
       await this.transaction('rw', this.transactions, this.paymentModes, this.categories, async () => {
-        if (modeCount === 0) {
-          await this.paymentModes.bulkPut(seedModes);
-        }
-        if (txCount === 0) {
-          await this.transactions.bulkPut(seedTx);
-        }
-        const existingCats = await this.categories.count();
-        if (existingCats === 0) {
-          await this.categories.bulkPut(seedCats.map(c => ({ id: c, name: c })));
-        }
+        await this.transactions.clear();
+        await this.paymentModes.clear();
+        await this.categories.clear();
+
+        await this.paymentModes.bulkPut(DEFAULT_PAYMENT_MODES);
+        await this.transactions.bulkPut(INITIAL_TRANSACTIONS);
+        await this.categories.bulkPut(DEFAULT_CATEGORIES.map(c => ({ id: c, name: c })));
       });
+
+      localStorage.setItem('expense_data_version', 'v2');
+      localStorage.setItem('expense_tracker_state_v2', JSON.stringify({
+        version: 2,
+        paymentModes: DEFAULT_PAYMENT_MODES,
+        transactions: INITIAL_TRANSACTIONS,
+        categories: DEFAULT_CATEGORIES
+      }));
     }
 
     const transactions = await this.transactions.orderBy('date').reverse().toArray();

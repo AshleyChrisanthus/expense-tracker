@@ -364,17 +364,33 @@ export const App: React.FC = () => {
       <main className="max-w-6xl mx-auto px-4 sm:px-8 pt-6 space-y-6">
         
         {/* Metric Cards Banner */}
-        <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {/* Total Expense */}
-          <div className="apple-card p-5 relative overflow-hidden">
-            <div className="flex items-center justify-between text-xs text-[var(--text-secondary)] mb-2">
-              <span className="font-medium uppercase tracking-wider">Total Expenses</span>
-              <div className="p-1.5 rounded-lg bg-rose-500/10 text-rose-400">
-                <TrendingDown className="w-4 h-4" />
+        <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
+          {/* Total Income */}
+          <div className="apple-card p-4 relative overflow-hidden">
+            <div className="flex items-center justify-between text-xs text-[var(--text-secondary)] mb-1.5">
+              <span className="font-semibold uppercase tracking-wider text-[11px]">Total Income</span>
+              <div className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400">
+                <TrendingUp className="w-3.5 h-3.5" />
               </div>
             </div>
-            <div className="text-2xl sm:text-3xl font-bold text-[var(--text-primary)] font-mono">
-              ${metrics.totalExpense.toFixed(2)}
+            <div className="text-xl sm:text-2xl font-bold text-emerald-400 font-mono">
+              +${metrics.totalIncome.toFixed(2)}
+            </div>
+            <p className="text-[11px] text-[var(--text-secondary)] mt-1">
+              {dataState.transactions.filter(t => t.type === 'income' && t.status !== 'cancelled').length} income deposits
+            </p>
+          </div>
+
+          {/* Total Expense */}
+          <div className="apple-card p-4 relative overflow-hidden">
+            <div className="flex items-center justify-between text-xs text-[var(--text-secondary)] mb-1.5">
+              <span className="font-semibold uppercase tracking-wider text-[11px]">Total Expenses</span>
+              <div className="p-1.5 rounded-lg bg-rose-500/10 text-rose-400">
+                <TrendingDown className="w-3.5 h-3.5" />
+              </div>
+            </div>
+            <div className="text-xl sm:text-2xl font-bold text-rose-400 font-mono">
+              -${metrics.totalExpense.toFixed(2)}
             </div>
             <p className="text-[11px] text-[var(--text-secondary)] mt-1">
               {dataState.transactions.filter(t => t.type === 'expense' && t.status !== 'cancelled').length} recorded expenses
@@ -382,53 +398,50 @@ export const App: React.FC = () => {
           </div>
 
           {/* Mode Breakdown - Bank */}
-          <div className="apple-card p-5 relative overflow-hidden">
-            <div className="flex items-center justify-between text-xs text-[var(--text-secondary)] mb-2">
-              <span className="font-medium uppercase tracking-wider">Bank Account</span>
+          <div className="apple-card p-4 relative overflow-hidden">
+            <div className="flex items-center justify-between text-xs text-[var(--text-secondary)] mb-1.5">
+              <span className="font-semibold uppercase tracking-wider text-[11px]">Paid via Bank</span>
               <div className="p-1.5 rounded-lg bg-blue-500/10 text-blue-400">
-                <Landmark className="w-4 h-4" />
+                <Landmark className="w-3.5 h-3.5" />
               </div>
             </div>
-            <div className="text-2xl sm:text-3xl font-bold text-[var(--text-primary)] font-mono">
+            <div className="text-xl sm:text-2xl font-bold text-[var(--text-primary)] font-mono">
               ${(metrics.modeSpending['bank'] || 0).toFixed(2)}
             </div>
             <p className="text-[11px] text-[var(--text-secondary)] mt-1">
-              Spent directly via bank
+              Direct bank debit
             </p>
           </div>
 
           {/* Mode Breakdown - Forex */}
-          <div className="apple-card p-5 relative overflow-hidden">
-            <div className="flex items-center justify-between text-xs text-[var(--text-secondary)] mb-2">
-              <span className="font-medium uppercase tracking-wider">Forex Card</span>
+          <div className="apple-card p-4 relative overflow-hidden">
+            <div className="flex items-center justify-between text-xs text-[var(--text-secondary)] mb-1.5">
+              <span className="font-semibold uppercase tracking-wider text-[11px]">Paid via Forex</span>
               <div className="p-1.5 rounded-lg bg-purple-500/10 text-purple-400">
-                <CreditCard className="w-4 h-4" />
+                <CreditCard className="w-3.5 h-3.5" />
               </div>
             </div>
-            <div className="text-2xl sm:text-3xl font-bold text-[var(--text-primary)] font-mono">
+            <div className="text-xl sm:text-2xl font-bold text-[var(--text-primary)] font-mono">
               ${(metrics.modeSpending['forex'] || 0).toFixed(2)}
             </div>
             <p className="text-[11px] text-[var(--text-secondary)] mt-1">
-              Spent via Forex Card
+              Forex card spend
             </p>
           </div>
 
           {/* Transfers & Cash */}
-          <div className="apple-card p-5 relative overflow-hidden">
-            <div className="flex items-center justify-between text-xs text-[var(--text-secondary)] mb-2">
-              <span className="font-medium uppercase tracking-wider">Cash & Transfers</span>
+          <div className="apple-card p-4 relative overflow-hidden">
+            <div className="flex items-center justify-between text-xs text-[var(--text-secondary)] mb-1.5">
+              <span className="font-semibold uppercase tracking-wider text-[11px]">Cash & Transfers</span>
               <div className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400">
-                <ArrowRightLeft className="w-4 h-4" />
+                <ArrowRightLeft className="w-3.5 h-3.5" />
               </div>
             </div>
-            <div className="flex items-baseline gap-2">
-              <div className="text-2xl sm:text-3xl font-bold text-[var(--text-primary)] font-mono">
-                ${(metrics.modeSpending['cash'] || 0).toFixed(2)}
-              </div>
-              <span className="text-xs text-[var(--text-secondary)]">cash spent</span>
+            <div className="text-xl sm:text-2xl font-bold text-[var(--text-primary)] font-mono">
+              ${(metrics.modeSpending['cash'] || 0).toFixed(2)}
             </div>
             <p className="text-[11px] text-[var(--text-secondary)] mt-1">
-              ${metrics.totalTransfers.toFixed(0)} transferred (+${metrics.transferFees.toFixed(2)} fees)
+              +${metrics.totalTransfers.toFixed(0)} transfers
             </p>
           </div>
         </section>
