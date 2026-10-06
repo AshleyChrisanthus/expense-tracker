@@ -183,7 +183,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
                   placeholder="0.00"
-                  className="apple-input pl-9 text-base font-semibold"
+                  className="apple-input apple-input-with-icon pl-9 text-base font-semibold"
                 />
               </div>
             </div>
@@ -201,7 +201,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                   required
                   value={date}
                   onChange={(e) => setDate(e.target.value)}
-                  className="apple-input pl-9 text-sm"
+                  className="apple-input apple-input-with-icon pl-9 text-sm"
                 />
               </div>
             </div>
@@ -302,7 +302,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                   <select
                     value={category}
                     onChange={(e) => setCategory(e.target.value)}
-                    className="apple-input pl-9 text-xs"
+                    className="apple-input apple-input-with-icon pl-9 text-xs"
                   >
                     {categories.map(c => (
                       <option key={c} value={c}>{c}</option>
@@ -357,7 +357,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
                   placeholder="e.g. near RMIT, split bill..."
-                  className="apple-input pl-9 text-xs"
+                  className="apple-input apple-input-with-icon pl-9 text-xs"
                 />
               </div>
             </div>

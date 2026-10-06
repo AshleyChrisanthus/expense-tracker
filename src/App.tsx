@@ -494,7 +494,7 @@ export const App: React.FC = () => {
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Search rent, grocery..."
-                className="apple-input pl-9 text-xs"
+                className="apple-input apple-input-with-icon pl-9 text-xs"
               />
             </div>
 
