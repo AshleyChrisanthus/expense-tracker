@@ -1,6 +1,6 @@
 import { PaymentMode, Transaction, ExpenseDataState } from '../types/expense';
 
-const STORAGE_KEY = 'expense_tracker_state_v1';
+const STORAGE_KEY = 'expense_tracker_state_v2';
 
 export const DEFAULT_PAYMENT_MODES: PaymentMode[] = [
   {
@@ -27,13 +27,12 @@ export const DEFAULT_PAYMENT_MODES: PaymentMode[] = [
 ];
 
 export const DEFAULT_CATEGORIES = [
-  'Rent',
+  'Rent & Housing',
   'Groceries',
-  'Coffee & Dining',
+  'Food & Dining',
   'Transport',
-  'Education & Fees',
-  'Bills & Utilities',
-  'Income / Deposit',
+  'Shopping',
+  'Income',
   'Transfers',
   'Other'
 ];
@@ -53,9 +52,8 @@ export function loadExpenseData(): ExpenseDataState {
     console.error('Failed to load expense state from localStorage:', e);
   }
 
-  // Initial state with user's keep sample data
   const defaultState: ExpenseDataState = {
-    version: 1,
+    version: 2,
     paymentModes: DEFAULT_PAYMENT_MODES,
     transactions: INITIAL_TRANSACTIONS,
     categories: DEFAULT_CATEGORIES
@@ -101,7 +99,6 @@ export function parseGoogleKeepText(text: string, currentModes: PaymentMode[]): 
   };
 
   for (const line of lines) {
-    // Check if line is a date (e.g. "March 31, 2024" or "March 31")
     const dateMatch = line.match(/^([a-zA-Z]+)\s+(\d{1,2})(?:,?\s*(\d{4}))?/i);
     if (dateMatch) {
       const monthStr = dateMatch[1].toLowerCase();
@@ -113,7 +110,6 @@ export function parseGoogleKeepText(text: string, currentModes: PaymentMode[]): 
       }
     }
 
-    // Check if line is a transfer (e.g. "Transferred 1000$ from forex to bank(+7.5$ charge)")
     const transferMatch = line.match(/transfer(?:red)?\s*(\d+(?:\.\d+)?)\$?\s*from\s*([a-zA-Z0-9_\s]+)\s*to\s*([a-zA-Z0-9_\s]+)(?:\(\+?(\d+(?:\.\d+)?)\$?\s*(?:charge|fee)?\))?/i);
     if (transferMatch) {
       const amount = parseFloat(transferMatch[1]);
@@ -141,7 +137,6 @@ export function parseGoogleKeepText(text: string, currentModes: PaymentMode[]): 
       continue;
     }
 
-    // Check if income / deposit (e.g. "Put 100$ in bank account")
     const incomeMatch = line.match(/put\s*(\d+(?:\.\d+)?)\$?\s*in\s*([a-zA-Z0-9_\s]+)/i);
     if (incomeMatch) {
       const amount = parseFloat(incomeMatch[1]);
@@ -153,7 +148,7 @@ export function parseGoogleKeepText(text: string, currentModes: PaymentMode[]): 
         amount,
         type: 'income',
         paymentModeId: mode,
-        category: 'Income / Deposit',
+        category: 'Income',
         description: line,
         status: 'completed',
         createdAt: Date.now()
@@ -161,7 +156,6 @@ export function parseGoogleKeepText(text: string, currentModes: PaymentMode[]): 
       continue;
     }
 
-    // Check if standard expense: "170$-from bank- room rent" or "2.03$-from forex- convenience store coffee" or "170$-cash- room rent"
     const expenseMatch = line.match(/^(\d+(?:\.\d+)?)\$?\s*[-–]\s*(?:from\s*)?([a-zA-Z0-9_\s]+)\s*[-–]\s*(.*)$/i);
     if (expenseMatch) {
       const amount = parseFloat(expenseMatch[1]);
@@ -171,11 +165,10 @@ export function parseGoogleKeepText(text: string, currentModes: PaymentMode[]): 
       
       let category = 'Other';
       const descLower = desc.toLowerCase();
-      if (descLower.includes('rent')) category = 'Rent';
+      if (descLower.includes('rent')) category = 'Rent & Housing';
       else if (descLower.includes('grocery') || descLower.includes('aldi') || descLower.includes('coles') || descLower.includes('wolworths')) category = 'Groceries';
-      else if (descLower.includes('coffee') || descLower.includes('kfc') || descLower.includes('lunch')) category = 'Coffee & Dining';
+      else if (descLower.includes('coffee') || descLower.includes('kfc') || descLower.includes('lunch') || descLower.includes('burger')) category = 'Food & Dining';
       else if (descLower.includes('transport') || descLower.includes('myki')) category = 'Transport';
-      else if (descLower.includes('rmit') || descLower.includes('fee') || descLower.includes('amenities')) category = 'Education & Fees';
 
       results.push({
         id: 'imported-' + Math.random().toString(36).substring(2, 9),
@@ -191,7 +184,6 @@ export function parseGoogleKeepText(text: string, currentModes: PaymentMode[]): 
       continue;
     }
 
-    // Ignore headers like "Total-16$", "Total Expenses=36$"
     if (/total/i.test(line)) {
       continue;
     }
