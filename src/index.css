@@ -1,6 +1,7 @@
 @import "tailwindcss";
 
 :root {
+  color-scheme: dark;
   --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --radius-xl: 20px;
   --radius-lg: 16px;
@@ -42,7 +43,12 @@
   --scrollbar-thumb: #3a3a3c;
 }
 
+[data-theme="dark"] {
+  color-scheme: dark;
+}
+
 [data-theme="light"] {
+  color-scheme: light;
   --bg-primary: #f5f5f7;
   --bg-secondary: #ffffff;
   --bg-tertiary: #f0f0f2;
@@ -174,6 +180,21 @@ body {
   color: var(--accent);
 }
 
+/* Select & Option Styling for Dark & Light Mode */
+select {
+  color-scheme: dark;
+}
+
+[data-theme="light"] select {
+  color-scheme: light;
+}
+
+select option,
+select optgroup {
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
 /* Glass Inputs */
 .apple-input {
   background-color: var(--input-bg);
@@ -189,6 +210,14 @@ body {
 .apple-input:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent);
+}
+
+/* Input / Select with left icon: prevent overlap */
+.apple-input-with-icon,
+.apple-input.apple-input-with-icon,
+.apple-input.pl-9,
+.apple-input.pl-10 {
+  padding-left: 38px !important;
 }
 
 /* Scrollbar styling */
