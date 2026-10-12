@@ -9,7 +9,8 @@ import {
   Tag, 
   FileText, 
   ArrowRight,
-  Repeat
+  Repeat,
+  Plus
 } from 'lucide-react';
 import { Transaction, TransactionType, PaymentMode, RecurrenceRule } from '../types/expense';
 import { 
@@ -25,6 +26,7 @@ interface TransactionModalProps {
   modes: PaymentMode[];
   categories: string[];
   initialTransaction?: Transaction | null;
+  onManageCategories?: () => void;
 }
 
 export const TransactionModal: React.FC<TransactionModalProps> = ({
@@ -33,7 +35,8 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
   onSave,
   modes,
   categories,
-  initialTransaction
+  initialTransaction,
+  onManageCategories
 }) => {
   const [type, setType] = useState<TransactionType>('expense');
   const [amount, setAmount] = useState('');
@@ -169,15 +172,15 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
 
   return (
     <div 
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-sm overflow-y-auto"
       onClick={onClose}
     >
       <div 
-        className="glass-modal w-full max-w-lg rounded-2xl p-6 relative overflow-hidden"
+        className="glass-modal w-full max-w-lg max-h-[92vh] flex flex-col rounded-2xl relative overflow-hidden shadow-2xl my-auto"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Header */}
-        <div className="flex items-center justify-between pb-4 border-b border-[var(--border-light)] mb-4">
+        {/* Header (pinned at top) */}
+        <div className="flex items-center justify-between p-5 pb-4 border-b border-[var(--border-light)] shrink-0">
           <h2 className="text-lg font-semibold text-[var(--text-primary)]">
             {initialTransaction ? 'Edit Record' : 'Add New Transaction'}
           </h2>
@@ -189,8 +192,11 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
           </button>
         </div>
 
-        {/* Type Selector (Expense / Transfer / Income) */}
-        <div className="grid grid-cols-3 gap-2 p-1 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-light)] mb-4">
+        {/* Form with scrollable body and pinned footer */}
+        <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0 overflow-hidden">
+          <div className="overflow-y-auto p-5 space-y-4 flex-1">
+            {/* Type Selector (Expense / Transfer / Income) */}
+            <div className="grid grid-cols-3 gap-2 p-1 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-light)]">
           <button
             type="button"
             onClick={() => setType('expense')}
@@ -226,10 +232,8 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
           </button>
         </div>
 
-        {/* Form */}
-        <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Amount & Date */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {/* Amount & Date */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
                 Amount ($)
@@ -355,9 +359,20 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
           {type !== 'transfer' && (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
-                  Category
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-medium text-[var(--text-secondary)]">
+                    Category
+                  </label>
+                  {onManageCategories && (
+                    <button
+                      type="button"
+                      onClick={onManageCategories}
+                      className="text-[11px] text-[var(--accent)] hover:underline flex items-center gap-0.5"
+                    >
+                      <Plus className="w-3 h-3" /> Manage
+                    </button>
+                  )}
+                </div>
                 <div className="relative">
                   <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-[var(--text-secondary)]">
                     <Tag className="w-4 h-4" />
@@ -523,10 +538,11 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                 className="apple-input apple-input-with-icon pl-9 text-xs"
               />
             </div>
+            </div>
           </div>
 
-          {/* Footer Action Buttons */}
-          <div className="flex items-center justify-end gap-2 pt-4 border-t border-[var(--border-light)]">
+          {/* Footer Action Buttons (pinned at bottom) */}
+          <div className="flex items-center justify-end gap-2 p-4 px-5 border-t border-[var(--border-light)] bg-[var(--bg-secondary)]/80 backdrop-blur-md shrink-0">
             <button
               type="button"
               onClick={onClose}

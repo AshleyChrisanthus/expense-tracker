@@ -105,6 +105,25 @@ export class ExpenseDB extends Dexie {
     });
   }
 
+  async saveCategories(categories: string[]): Promise<void> {
+    await this.transaction('rw', this.categories, async () => {
+      await this.categories.clear();
+      await this.categories.bulkPut(categories.map(c => ({ id: c, name: c })));
+    });
+  }
+
+  async renameCategory(oldName: string, newName: string): Promise<void> {
+    await this.transaction('rw', this.categories, this.transactions, async () => {
+      await this.categories.delete(oldName);
+      await this.categories.put({ id: newName, name: newName });
+      const txsToUpdate = await this.transactions.where('category').equals(oldName).toArray();
+      for (const tx of txsToUpdate) {
+        tx.category = newName;
+        await this.transactions.put(tx);
+      }
+    });
+  }
+
   async bulkAddTransactions(items: Transaction[]): Promise<void> {
     await this.transactions.bulkPut(items);
   }
