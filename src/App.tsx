@@ -27,7 +27,8 @@ import {
   Bookmark,
   CheckSquare,
   GitCommit,
-  ChevronDown
+  ChevronDown,
+  BarChart3
 } from 'lucide-react';
 
 import { ThemeMode } from './types/theme';
@@ -40,6 +41,7 @@ import { PaymentModesModal } from './components/PaymentModesModal';
 import { CategoriesModal } from './components/CategoriesModal';
 import { BannersModal } from './components/BannersModal';
 import { ImportExportModal } from './components/ImportExportModal';
+import { VisualAnalytics } from './components/VisualAnalytics';
 import { db } from './db';
 import { 
   getRecurrenceDueInfo, 
@@ -65,6 +67,7 @@ export const App: React.FC = () => {
   const [isCategoriesModalOpen, setIsCategoriesModalOpen] = useState(false);
   const [isBannersModalOpen, setIsBannersModalOpen] = useState(false);
   const [isImportExportOpen, setIsImportExportOpen] = useState(false);
+  const [showAnalytics, setShowAnalytics] = useState(false);
 
   // Filters & Search
   const [searchQuery, setSearchQuery] = useState('');
@@ -683,6 +686,19 @@ export const App: React.FC = () => {
             </button>
 
             <button
+              onClick={() => setShowAnalytics(prev => !prev)}
+              className={`apple-btn text-xs sm:text-sm font-medium transition-all ${
+                showAnalytics
+                  ? 'border-[var(--accent)] bg-[var(--accent-bg)] text-[var(--accent)] shadow-sm'
+                  : 'apple-btn-secondary'
+              }`}
+              title={showAnalytics ? "Hide Visual Analytics" : "Show Visual Analytics & Charts"}
+            >
+              <BarChart3 className="w-4 h-4 text-[var(--accent)]" />
+              <span className="hidden md:inline">{showAnalytics ? 'Hide Charts' : 'Analytics'}</span>
+            </button>
+
+            <button
               onClick={() => setIsImportExportOpen(true)}
               className="apple-btn apple-btn-secondary text-xs sm:text-sm font-medium"
               title="Export or Import JSON Data"
@@ -881,6 +897,47 @@ export const App: React.FC = () => {
             <Plus className="w-3.5 h-3.5" /> Manage Banners
           </button>
         </div>
+
+        {/* Optional Visual Analytics & Financial Visualizations */}
+        {showAnalytics ? (
+          <VisualAnalytics
+            transactions={dataState.transactions}
+            paymentModes={dataState.paymentModes}
+            categories={dataState.categories}
+            banners={dataState.banners || []}
+            filteredTransactions={filteredTransactions}
+            activeMonthFilter={selectedMonthFilter}
+            onSelectMonth={(m) => setSelectedMonthFilter(m)}
+            onSelectCategory={(c) => setSelectedCategoryFilter(c)}
+            onSelectMode={(m) => setSelectedModeFilter(m)}
+            onSelectBanner={(b) => setSelectedBannerFilter(b)}
+            onClose={() => setShowAnalytics(false)}
+          />
+        ) : (
+          <div className="flex items-center justify-between p-3.5 rounded-2xl glass-panel border border-[var(--border-light)] hover:border-[var(--accent)]/40 transition-all">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-xl bg-[var(--accent-bg)] text-[var(--accent)]">
+                <BarChart3 className="w-4 h-4" />
+              </div>
+              <div>
+                <div className="text-xs font-semibold text-[var(--text-primary)]">
+                  Visual Financial Analytics & Spending Breakdown
+                </div>
+                <div className="text-[11px] text-[var(--text-secondary)]">
+                  Interactive charts for Categories, Payment Accounts, Custom Banners, and Monthly Trends
+                </div>
+              </div>
+            </div>
+            <button
+              onClick={() => setShowAnalytics(true)}
+              className="apple-btn apple-btn-secondary text-xs py-1.5 px-3 font-semibold hover:border-[var(--accent)] text-[var(--accent)] flex items-center gap-1.5 shrink-0"
+              title="Reveal visual analytics charts"
+            >
+              <span>Reveal Analytics</span>
+              <ChevronDown className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
 
         {/* Filters and Search Bar */}
         <section className="apple-card p-4 space-y-3">
