@@ -8,9 +8,11 @@ import {
   Calendar, 
   Tag, 
   FileText, 
-  ArrowRight
+  ArrowRight,
+  Repeat
 } from 'lucide-react';
-import { Transaction, TransactionType, PaymentMode } from '../types/expense';
+import { Transaction, TransactionType, PaymentMode, RecurrenceRule } from '../types/expense';
+import { computeNextDueDate } from '../utils/recurrence';
 
 interface TransactionModalProps {
   isOpen: boolean;
@@ -40,6 +42,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
   const [description, setDescription] = useState('');
   const [notes, setNotes] = useState('');
   const [status, setStatus] = useState<'completed' | 'cancelled' | 'pending'>('completed');
+  const [recurrence, setRecurrence] = useState<RecurrenceRule>('none');
 
   useEffect(() => {
     if (initialTransaction) {
@@ -59,6 +62,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
       setDescription(initialTransaction.description);
       setNotes(initialTransaction.notes || '');
       setStatus(initialTransaction.status || 'completed');
+      setRecurrence(initialTransaction.recurrence || 'none');
     } else {
       setType('expense');
       setAmount('');
@@ -71,6 +75,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
       setDescription('');
       setNotes('');
       setStatus('completed');
+      setRecurrence('none');
     }
   }, [initialTransaction, isOpen, modes, categories]);
 
@@ -85,6 +90,10 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
       ? customCategory.trim() 
       : (type === 'transfer' ? 'Transfers' : category);
 
+    const nextDueDate = (recurrence && recurrence !== 'none')
+      ? (initialTransaction?.nextDueDate || computeNextDueDate(date, recurrence))
+      : undefined;
+
     const transaction: Transaction = {
       id: initialTransaction ? initialTransaction.id : 'tx-' + Date.now(),
       date,
@@ -97,6 +106,8 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
       description: description.trim() || (type === 'transfer' ? `Transfer to ${modes.find(m => m.id === toPaymentModeId)?.name || 'Account'}` : 'Expense'),
       notes: notes.trim() || undefined,
       status,
+      recurrence: recurrence !== 'none' ? recurrence : undefined,
+      nextDueDate,
       createdAt: initialTransaction ? initialTransaction.createdAt : Date.now()
     };
 
@@ -342,24 +353,24 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
             />
           </div>
 
-          {/* Notes and Status */}
+          {/* Recurrence & Status */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
-                Additional Notes
+              <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1 flex items-center gap-1.5">
+                <Repeat className="w-3.5 h-3.5 text-purple-400" /> Recurrence / Repeat
               </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-[var(--text-secondary)]">
-                  <FileText className="w-4 h-4" />
-                </div>
-                <input
-                  type="text"
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  placeholder="e.g. near RMIT, split bill..."
-                  className="apple-input apple-input-with-icon pl-9 text-xs"
-                />
-              </div>
+              <select
+                value={recurrence}
+                onChange={(e) => setRecurrence(e.target.value as RecurrenceRule)}
+                className="apple-input text-xs"
+              >
+                <option value="none">One-time (Does not repeat)</option>
+                <option value="weekly">Weekly (e.g. Room Rent)</option>
+                <option value="biweekly">Every 2 Weeks (Bi-weekly)</option>
+                <option value="monthly">Monthly (e.g. Subscriptions)</option>
+                <option value="yearly">Yearly (Annual bills)</option>
+                <option value="daily">Daily</option>
+              </select>
             </div>
 
             <div>
@@ -375,6 +386,25 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                 <option value="cancelled">Cancelled / Uncollected</option>
                 <option value="pending">Pending</option>
               </select>
+            </div>
+          </div>
+
+          {/* Notes */}
+          <div>
+            <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
+              Additional Notes (Optional)
+            </label>
+            <div className="relative">
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-[var(--text-secondary)]">
+                <FileText className="w-4 h-4" />
+              </div>
+              <input
+                type="text"
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="e.g. near RMIT, split bill..."
+                className="apple-input apple-input-with-icon pl-9 text-xs"
+              />
             </div>
           </div>
 

@@ -1,4 +1,5 @@
 export type TransactionType = 'expense' | 'income' | 'transfer';
+export type RecurrenceRule = 'none' | 'daily' | 'weekly' | 'biweekly' | 'monthly' | 'yearly';
 
 export interface PaymentMode {
   id: string;
@@ -20,6 +21,8 @@ export interface Transaction {
   description: string;
   notes?: string;
   status?: 'completed' | 'cancelled' | 'pending';
+  recurrence?: RecurrenceRule;
+  nextDueDate?: string; // YYYY-MM-DD
   createdAt: number;
 }
 

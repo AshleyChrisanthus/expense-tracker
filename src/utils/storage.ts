@@ -8892,6 +8892,7 @@ export const INITIAL_TRANSACTIONS: Transaction[] = [
     "paymentModeId": "bank",
     "category": "Rent & Housing",
     "description": "room rent",
+    "recurrence": "weekly",
     "status": "completed",
     "createdAt": 1711846800000
   },
@@ -9037,7 +9038,6 @@ export const INITIAL_TRANSACTIONS: Transaction[] = [
     "fee": 7.5,
     "category": "Transfers",
     "description": "Transferred 1000$ from forex to bank",
-    "notes": "+7.5$ transfer fee",
     "status": "completed",
     "createdAt": 1710378000000
   },
@@ -9257,7 +9257,6 @@ export function parseGoogleKeepText(text: string, currentModes: PaymentMode[]): 
         fee,
         category: 'Transfers',
         description: line,
-        notes: fee > 0 ? `+${fee}$ fee` : undefined,
         status: 'completed',
         createdAt: Date.now()
       });
