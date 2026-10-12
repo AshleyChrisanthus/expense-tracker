@@ -12,7 +12,11 @@ import {
   Repeat
 } from 'lucide-react';
 import { Transaction, TransactionType, PaymentMode, RecurrenceRule } from '../types/expense';
-import { computeNextDueDate } from '../utils/recurrence';
+import { 
+  calculateInitialDueDate, 
+  WEEKDAYS, 
+  getOrdinalSuffix 
+} from '../utils/recurrence';
 
 interface TransactionModalProps {
   isOpen: boolean;
@@ -43,6 +47,8 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
   const [notes, setNotes] = useState('');
   const [status, setStatus] = useState<'completed' | 'cancelled' | 'pending'>('completed');
   const [recurrence, setRecurrence] = useState<RecurrenceRule>('none');
+  const [recurrenceDayOfWeek, setRecurrenceDayOfWeek] = useState<number>(0);
+  const [recurrenceDayOfMonth, setRecurrenceDayOfMonth] = useState<number>(1);
 
   useEffect(() => {
     if (initialTransaction) {
@@ -63,10 +69,30 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
       setNotes(initialTransaction.notes || '');
       setStatus(initialTransaction.status || 'completed');
       setRecurrence(initialTransaction.recurrence || 'none');
+
+      // Set initial day of week and day of month
+      if (initialTransaction.recurrenceDayOfWeek !== undefined) {
+        setRecurrenceDayOfWeek(initialTransaction.recurrenceDayOfWeek);
+      } else if (initialTransaction.date) {
+        const parts = initialTransaction.date.split('-').map(Number);
+        if (parts.length === 3) {
+          setRecurrenceDayOfWeek(new Date(parts[0], parts[1] - 1, parts[2]).getDay());
+        }
+      }
+
+      if (initialTransaction.recurrenceDayOfMonth !== undefined) {
+        setRecurrenceDayOfMonth(initialTransaction.recurrenceDayOfMonth);
+      } else if (initialTransaction.date) {
+        const parts = initialTransaction.date.split('-').map(Number);
+        if (parts.length === 3) {
+          setRecurrenceDayOfMonth(parts[2]);
+        }
+      }
     } else {
       setType('expense');
       setAmount('');
-      setDate(new Date().toISOString().split('T')[0]);
+      const todayStr = new Date().toISOString().split('T')[0];
+      setDate(todayStr);
       setPaymentModeId(modes[0]?.id || 'bank');
       setToPaymentModeId(modes[1]?.id || 'forex');
       setFee('');
@@ -76,10 +102,26 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
       setNotes('');
       setStatus('completed');
       setRecurrence('none');
+      
+      const now = new Date();
+      setRecurrenceDayOfWeek(now.getDay());
+      setRecurrenceDayOfMonth(now.getDate());
     }
   }, [initialTransaction, isOpen, modes, categories]);
 
   if (!isOpen) return null;
+
+  const handleDateChange = (newDate: string) => {
+    setDate(newDate);
+    if (!initialTransaction) {
+      const parts = newDate.split('-').map(Number);
+      if (parts.length === 3) {
+        const dObj = new Date(parts[0], parts[1] - 1, parts[2]);
+        setRecurrenceDayOfWeek(dObj.getDay());
+        setRecurrenceDayOfMonth(parts[2]);
+      }
+    }
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -90,8 +132,16 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
       ? customCategory.trim() 
       : (type === 'transfer' ? 'Transfers' : category);
 
+    const isWeekCycle = recurrence === 'weekly' || recurrence === 'biweekly';
+    const isMonthCycle = recurrence === 'monthly';
+
     const nextDueDate = (recurrence && recurrence !== 'none')
-      ? (initialTransaction?.nextDueDate || computeNextDueDate(date, recurrence))
+      ? (initialTransaction?.nextDueDate || calculateInitialDueDate(
+          date, 
+          recurrence, 
+          isWeekCycle ? recurrenceDayOfWeek : undefined,
+          isMonthCycle ? recurrenceDayOfMonth : undefined
+        ))
       : undefined;
 
     const transaction: Transaction = {
@@ -107,6 +157,8 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
       notes: notes.trim() || undefined,
       status,
       recurrence: recurrence !== 'none' ? recurrence : undefined,
+      recurrenceDayOfWeek: isWeekCycle ? recurrenceDayOfWeek : undefined,
+      recurrenceDayOfMonth: isMonthCycle ? recurrenceDayOfMonth : undefined,
       nextDueDate,
       createdAt: initialTransaction ? initialTransaction.createdAt : Date.now()
     };
@@ -211,7 +263,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                   type="date"
                   required
                   value={date}
-                  onChange={(e) => setDate(e.target.value)}
+                  onChange={(e) => handleDateChange(e.target.value)}
                   className="apple-input apple-input-with-icon pl-9 text-sm"
                 />
               </div>
@@ -365,9 +417,9 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                 className="apple-input text-xs"
               >
                 <option value="none">One-time (Does not repeat)</option>
-                <option value="weekly">Weekly (e.g. Room Rent)</option>
+                <option value="weekly">Weekly (e.g. Every Sunday)</option>
                 <option value="biweekly">Every 2 Weeks (Bi-weekly)</option>
-                <option value="monthly">Monthly (e.g. Subscriptions)</option>
+                <option value="monthly">Monthly (e.g. 2nd of every month)</option>
                 <option value="yearly">Yearly (Annual bills)</option>
                 <option value="daily">Daily</option>
               </select>
@@ -388,6 +440,71 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
               </select>
             </div>
           </div>
+
+          {/* Weekday Customization for Weekly & Bi-weekly */}
+          {(recurrence === 'weekly' || recurrence === 'biweekly') && (
+            <div className="p-3 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-light)] space-y-2">
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-medium text-[var(--text-secondary)]">
+                  Repeat on specific day of week
+                </span>
+                <span className="font-semibold text-purple-400">
+                  Every {WEEKDAYS.find(w => w.value === recurrenceDayOfWeek)?.label}
+                </span>
+              </div>
+              <div className="grid grid-cols-7 gap-1">
+                {WEEKDAYS.map(w => {
+                  const isSelected = recurrenceDayOfWeek === w.value;
+                  return (
+                    <button
+                      key={w.value}
+                      type="button"
+                      onClick={() => setRecurrenceDayOfWeek(w.value)}
+                      className={`py-1.5 text-xs font-semibold rounded-lg text-center transition-all ${
+                        isSelected
+                          ? 'bg-purple-500/25 text-purple-300 border border-purple-500/40 shadow-sm'
+                          : 'border border-[var(--border-light)] bg-[var(--bg-primary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                      }`}
+                      title={w.label}
+                    >
+                      {w.short}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-[11px] text-[var(--text-secondary)]">
+                Expense will repeat {recurrence === 'weekly' ? 'every week' : 'every two weeks'} on <strong className="text-[var(--text-primary)]">{WEEKDAYS.find(w => w.value === recurrenceDayOfWeek)?.label}</strong>.
+              </p>
+            </div>
+          )}
+
+          {/* Day of Month Customization for Monthly */}
+          {recurrence === 'monthly' && (
+            <div className="p-3 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-light)] space-y-2">
+              <div className="flex items-center justify-between text-xs">
+                <span className="font-medium text-[var(--text-secondary)]">
+                  Day of the month
+                </span>
+                <span className="font-semibold text-purple-400">
+                  {getOrdinalSuffix(recurrenceDayOfMonth)} day of every month
+                </span>
+              </div>
+              <select
+                value={recurrenceDayOfMonth}
+                onChange={(e) => setRecurrenceDayOfMonth(parseInt(e.target.value))}
+                className="apple-input text-xs"
+              >
+                {Array.from({ length: 31 }, (_, i) => i + 1).map(dayNum => (
+                  <option key={dayNum} value={dayNum}>
+                    {getOrdinalSuffix(dayNum)} day of every month
+                  </option>
+                ))}
+              </select>
+              <p className="text-[11px] text-[var(--text-secondary)]">
+                Expense will repeat on the <strong className="text-[var(--text-primary)]">{getOrdinalSuffix(recurrenceDayOfMonth)}</strong> day of every month.
+              </p>
+            </div>
+          )}
 
           {/* Notes */}
           <div>
