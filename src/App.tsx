@@ -26,7 +26,8 @@ import {
   Tag,
   Bookmark,
   CheckSquare,
-  GitCommit
+  GitCommit,
+  ChevronDown
 } from 'lucide-react';
 
 import { ThemeMode } from './types/theme';
@@ -76,7 +77,10 @@ export const App: React.FC = () => {
   // Multi-selection & Connective line states
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [selectedTxIds, setSelectedTxIds] = useState<Set<string>>(new Set());
-  const [showConnectingLine, setShowConnectingLine] = useState(true);
+  // Banner Line Mode: 'all' | 'recurring' | 'custom' | 'off'
+  const [bannerLineMode, setBannerLineMode] = useState<'all' | 'recurring' | 'custom' | 'off'>('all');
+  const [customBannerLineIds, setCustomBannerLineIds] = useState<string[]>([]);
+  const [isBannerModeDropdownOpen, setIsBannerModeDropdownOpen] = useState(false);
 
   // Load from Dexie on mount
   useEffect(() => {
@@ -551,17 +555,37 @@ export const App: React.FC = () => {
 
   // Unique banners present in the current filtered feed (for multi-track vertical lines)
   const activeFeedBanners = useMemo(() => {
+    if (bannerLineMode === 'off') return [];
+
+    const allBanners = dataState.banners || [];
+
+    // Recurring mode: only show banners linked to active recurring transactions
+    if (bannerLineMode === 'recurring') {
+      const recurringBannerSet = new Set<string>();
+      dataState.transactions.forEach(tx => {
+        if (tx.recurrence && tx.recurrence !== 'none' && tx.status !== 'cancelled') {
+          tx.bannerIds?.forEach(id => recurringBannerSet.add(id));
+        }
+      });
+      return allBanners.filter(b => recurringBannerSet.has(b.id));
+    }
+
+    // Custom mode: only show user-selected banners
+    if (bannerLineMode === 'custom') {
+      return allBanners.filter(b => customBannerLineIds.includes(b.id));
+    }
+
+    // 'all' mode: show banners present in current filtered transactions
     const bannerSet = new Set<string>();
     filteredTransactions.forEach(tx => {
       tx.bannerIds?.forEach(id => bannerSet.add(id));
     });
 
-    const allBanners = dataState.banners || [];
     if (selectedBannerFilter !== 'all') {
       return allBanners.filter(b => b.id === selectedBannerFilter);
     }
     return allBanners.filter(b => bannerSet.has(b.id));
-  }, [filteredTransactions, dataState.banners, selectedBannerFilter]);
+  }, [filteredTransactions, dataState.banners, dataState.transactions, selectedBannerFilter, bannerLineMode, customBannerLineIds]);
 
   // Summary Metrics
   const metrics = useMemo(() => {
@@ -1083,21 +1107,129 @@ export const App: React.FC = () => {
             </h2>
 
             {/* Selection Mode & Connecting Line Toolbar Controls */}
-            <div className="flex items-center gap-2 flex-wrap">
-              {/* Toggle Connecting Line */}
-              <button
-                type="button"
-                onClick={() => setShowConnectingLine(prev => !prev)}
-                className={`px-2.5 py-1.5 rounded-xl border text-xs font-medium flex items-center gap-1.5 transition-all ${
-                  showConnectingLine
-                    ? 'border-purple-500/40 bg-purple-500/10 text-purple-300'
-                    : 'border-[var(--border-light)] bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-                }`}
-                title="Toggle visual connecting line for banner groups"
-              >
-                <GitCommit className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Banner Line:</span> {showConnectingLine ? 'On' : 'Off'}
-              </button>
+            <div className="flex items-center gap-2 flex-wrap relative">
+              {/* 4-Mode Banner Line Selector (All, Recurring, Custom, Off) */}
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setIsBannerModeDropdownOpen(prev => !prev)}
+                  className={`px-3 py-1.5 rounded-xl border text-xs font-medium flex items-center gap-2 transition-all ${
+                    bannerLineMode !== 'off'
+                      ? 'border-purple-500/40 bg-purple-500/10 text-purple-300 shadow-sm'
+                      : 'border-[var(--border-light)] bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                  }`}
+                  title="Configure banner tracks visualization mode"
+                >
+                  <GitCommit className="w-3.5 h-3.5" />
+                  <span>
+                    Banner Lines:{' '}
+                    <strong className="capitalize">
+                      {bannerLineMode === 'all' ? 'All Banners' : bannerLineMode === 'recurring' ? 'Recurring Only' : bannerLineMode === 'custom' ? `Custom (${customBannerLineIds.length})` : 'Off'}
+                    </strong>
+                  </span>
+                  <ChevronDown className={`w-3.5 h-3.5 transition-transform ${isBannerModeDropdownOpen ? 'rotate-180' : ''}`} />
+                </button>
+
+                {/* Dropdown Menu for Modes */}
+                {isBannerModeDropdownOpen && (
+                  <div 
+                    className="absolute right-0 top-full mt-1.5 w-64 p-2 rounded-2xl bg-[var(--bg-primary)] border border-[var(--border-light)] shadow-2xl z-30 space-y-1.5 animate-scale-up backdrop-blur-md"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="text-[10px] font-semibold text-[var(--text-secondary)] uppercase tracking-wider px-2 py-1">
+                      Banner Line Modes
+                    </div>
+
+                    {/* Mode: All */}
+                    <button
+                      type="button"
+                      onClick={() => { setBannerLineMode('all'); setIsBannerModeDropdownOpen(false); }}
+                      className={`w-full text-left px-2.5 py-1.5 rounded-xl text-xs flex items-center justify-between transition-colors ${
+                        bannerLineMode === 'all'
+                          ? 'bg-purple-500/20 text-purple-300 font-semibold'
+                          : 'hover:bg-[var(--bg-secondary)] text-[var(--text-primary)]'
+                      }`}
+                    >
+                      <span>All Banners (Show All Tracks)</span>
+                      {bannerLineMode === 'all' && <Check className="w-3.5 h-3.5" />}
+                    </button>
+
+                    {/* Mode: Recurring Only */}
+                    <button
+                      type="button"
+                      onClick={() => { setBannerLineMode('recurring'); setIsBannerModeDropdownOpen(false); }}
+                      className={`w-full text-left px-2.5 py-1.5 rounded-xl text-xs flex items-center justify-between transition-colors ${
+                        bannerLineMode === 'recurring'
+                          ? 'bg-purple-500/20 text-purple-300 font-semibold'
+                          : 'hover:bg-[var(--bg-secondary)] text-[var(--text-primary)]'
+                      }`}
+                    >
+                      <span>Recurring Only (Active Subscriptions)</span>
+                      {bannerLineMode === 'recurring' && <Check className="w-3.5 h-3.5" />}
+                    </button>
+
+                    {/* Mode: Custom */}
+                    <button
+                      type="button"
+                      onClick={() => setBannerLineMode('custom')}
+                      className={`w-full text-left px-2.5 py-1.5 rounded-xl text-xs flex items-center justify-between transition-colors ${
+                        bannerLineMode === 'custom'
+                          ? 'bg-purple-500/20 text-purple-300 font-semibold'
+                          : 'hover:bg-[var(--bg-secondary)] text-[var(--text-primary)]'
+                      }`}
+                    >
+                      <span>Custom Selection (Pick Banners)</span>
+                      {bannerLineMode === 'custom' && <Check className="w-3.5 h-3.5" />}
+                    </button>
+
+                    {/* Custom Banner Sub-Selector (when custom is active) */}
+                    {bannerLineMode === 'custom' && (
+                      <div className="p-2 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-light)] space-y-1.5 mt-1">
+                        <div className="text-[10px] text-[var(--text-secondary)] font-medium">
+                          Select banners to display:
+                        </div>
+                        <div className="max-h-36 overflow-y-auto space-y-1">
+                          {(dataState.banners || []).map(b => {
+                            const isChecked = customBannerLineIds.includes(b.id);
+                            return (
+                              <button
+                                key={b.id}
+                                type="button"
+                                onClick={() => {
+                                  setCustomBannerLineIds(prev =>
+                                    prev.includes(b.id) ? prev.filter(id => id !== b.id) : [...prev, b.id]
+                                  );
+                                }}
+                                className={`w-full text-left px-2 py-1 rounded-lg text-[11px] flex items-center gap-2 transition-colors ${
+                                  isChecked ? 'bg-black/20 text-white font-medium' : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                                }`}
+                              >
+                                <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: b.color }} />
+                                <span className="truncate flex-1">{b.name}</span>
+                                {isChecked && <Check className="w-3 h-3 text-emerald-400 shrink-0" />}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Mode: Off */}
+                    <button
+                      type="button"
+                      onClick={() => { setBannerLineMode('off'); setIsBannerModeDropdownOpen(false); }}
+                      className={`w-full text-left px-2.5 py-1.5 rounded-xl text-xs flex items-center justify-between transition-colors ${
+                        bannerLineMode === 'off'
+                          ? 'bg-rose-500/20 text-rose-300 font-semibold'
+                          : 'hover:bg-[var(--bg-secondary)] text-[var(--text-primary)]'
+                      }`}
+                    >
+                      <span>Off (Hide Banner Lines)</span>
+                      {bannerLineMode === 'off' && <Check className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
+                )}
+              </div>
 
               {/* Toggle Selection Mode */}
               <button
@@ -1212,101 +1344,126 @@ export const App: React.FC = () => {
                 Clear Filters
               </button>
             </div>
-          ) : (
-            groupedTransactions.map((group) => (
-              <div key={group.date} className="space-y-2.5">
-                {/* Date Header Group with Day Total */}
-                <div className="flex items-center justify-between px-2 pt-2">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-semibold text-[var(--text-primary)]">
-                      {group.displayDate}
-                    </span>
-                    <span className="text-[11px] text-[var(--text-secondary)] font-mono">
-                      ({group.items.length} {group.items.length === 1 ? 'item' : 'items'})
-                    </span>
+          ) : (() => {
+            const showMultiTrack = bannerLineMode !== 'off' && activeFeedBanners.length > 0;
+            const gutterWidthPx = showMultiTrack ? Math.max(28, activeFeedBanners.length * 18 + 14) : 0;
+
+            return (
+              <div className="relative flex items-stretch">
+                {/* Continuous Multi-Track Metro/Git Vertical Lines in OUTER Left Gutter (Left of Date Headers & Cards) */}
+                {showMultiTrack && (
+                  <div 
+                    className="relative shrink-0 select-none hidden sm:block"
+                    style={{ width: `${gutterWidthPx}px` }}
+                  >
+                    {/* Continuous Vertical Lines running down the entire height of the feed */}
+                    {activeFeedBanners.map((banner, bIdx) => {
+                      const lineLeftPx = bIdx * 18 + 10;
+                      return (
+                        <div 
+                          key={banner.id}
+                          className="absolute inset-y-0 w-[2.5px] -translate-x-1/2 rounded-full transition-all opacity-80"
+                          style={{ 
+                            left: `${lineLeftPx}px`,
+                            backgroundColor: banner.color 
+                          }}
+                          title={`Banner Track: ${banner.name}`}
+                        />
+                      );
+                    })}
                   </div>
-                  {group.dayTotal > 0 && (
-                    <div className="text-xs font-semibold text-[var(--text-secondary)] font-mono">
-                      Day Total: <span className="text-[var(--text-primary)] font-bold">${group.dayTotal.toFixed(2)}</span>
-                    </div>
-                  )}
-                </div>
+                )}
 
-                {/* Items in Day */}
-                <div className="space-y-3 relative">
-                  {group.items.map((tx) => {
-                    const mode = dataState.paymentModes.find(m => m.id === tx.paymentModeId);
-                    const toMode = tx.toPaymentModeId ? dataState.paymentModes.find(m => m.id === tx.toPaymentModeId) : null;
-                    const isCancelled = tx.status === 'cancelled';
-                    const isSelected = selectedTxIds.has(tx.id);
+                {/* Right side: Date Headers and Transaction Cards */}
+                <div className="flex-1 min-w-0 space-y-6">
+                  {groupedTransactions.map((group) => (
+                    <div key={group.date} className="space-y-2.5">
+                      {/* Date Header Group with Day Total */}
+                      <div className="flex items-center justify-between px-2 pt-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-semibold text-[var(--text-primary)]">
+                            {group.displayDate}
+                          </span>
+                          <span className="text-[11px] text-[var(--text-secondary)] font-mono">
+                            ({group.items.length} {group.items.length === 1 ? 'item' : 'items'})
+                          </span>
+                        </div>
+                        {group.dayTotal > 0 && (
+                          <div className="text-xs font-semibold text-[var(--text-secondary)] font-mono">
+                            Day Total: <span className="text-[var(--text-primary)] font-bold">${group.dayTotal.toFixed(2)}</span>
+                          </div>
+                        )}
+                      </div>
 
-                    // Resolved banner objects for this transaction
-                    const txBanners = (tx.bannerIds || [])
-                      .map(bId => (dataState.banners || []).find(b => b.id === bId))
-                      .filter((b): b is Banner => Boolean(b));
+                      {/* Items in Day */}
+                      <div className="space-y-3 relative">
+                        {group.items.map((tx) => {
+                          const mode = dataState.paymentModes.find(m => m.id === tx.paymentModeId);
+                          const toMode = tx.toPaymentModeId ? dataState.paymentModes.find(m => m.id === tx.toPaymentModeId) : null;
+                          const isCancelled = tx.status === 'cancelled';
+                          const isSelected = selectedTxIds.has(tx.id);
 
-                    // Build multi-color gradient style for left edge stripe
-                    const leftEdgeStyle: React.CSSProperties = {};
-                    if (txBanners.length === 1) {
-                      leftEdgeStyle.backgroundColor = txBanners[0].color;
-                    } else if (txBanners.length > 1) {
-                      const stepPercent = 100 / txBanners.length;
-                      const stops = txBanners.map((b, idx) => {
-                        const start = (idx * stepPercent).toFixed(1);
-                        const end = ((idx + 1) * stepPercent).toFixed(1);
-                        return `${b.color} ${start}%, ${b.color} ${end}%`;
-                      }).join(', ');
-                      leftEdgeStyle.background = `linear-gradient(to bottom, ${stops})`;
-                    }
+                          // Resolved banner objects for this transaction
+                          const txBanners = (tx.bannerIds || [])
+                            .map(bId => (dataState.banners || []).find(b => b.id === bId))
+                            .filter((b): b is Banner => Boolean(b));
 
-                    // Has multiple tracks to display in the gutter?
-                    const showMultiTrack = showConnectingLine && activeFeedBanners.length > 0;
-                    const gutterWidthPx = showMultiTrack ? Math.max(24, activeFeedBanners.length * 16 + 12) : 0;
+                          // Filter banners that are currently active in multi-track
+                          const activeTxBanners = txBanners.filter(b => activeFeedBanners.some(ab => ab.id === b.id));
 
-                    return (
-                      <div key={tx.id} className="relative flex items-stretch">
-                        {/* Continuous Multi-Track Metro/Git Vertical Lines in Left Gutter */}
-                        {showMultiTrack && (
-                          <div 
-                            className="relative shrink-0 select-none hidden sm:block"
-                            style={{ width: `${gutterWidthPx}px` }}
-                          >
-                            {/* Vertical Continuous Lines for each active banner */}
-                            {activeFeedBanners.map((banner, bIdx) => {
-                              const isLinked = tx.bannerIds?.includes(banner.id);
-                              const lineLeftPx = bIdx * 16 + 8;
+                          // Build multi-color gradient style for left edge stripe
+                          const leftEdgeStyle: React.CSSProperties = {};
+                          if (txBanners.length === 1) {
+                            leftEdgeStyle.backgroundColor = txBanners[0].color;
+                          } else if (txBanners.length > 1) {
+                            const stepPercent = 100 / txBanners.length;
+                            const stops = txBanners.map((b, idx) => {
+                              const start = (idx * stepPercent).toFixed(1);
+                              const end = ((idx + 1) * stepPercent).toFixed(1);
+                              return `${b.color} ${start}%, ${b.color} ${end}%`;
+                            }).join(', ');
+                            leftEdgeStyle.background = `linear-gradient(to bottom, ${stops})`;
+                          }
 
-                              // Vertical line running through the card height
-                              return (
-                                <div key={banner.id} className="absolute inset-y-0" style={{ left: `${lineLeftPx}px` }}>
-                                  {/* Continuous vertical line track */}
-                                  <div 
-                                    className={`absolute inset-y-0 w-[2px] -translate-x-1/2 transition-all ${
-                                      isLinked ? 'opacity-90' : 'opacity-25'
-                                    }`}
-                                    style={{ backgroundColor: banner.color }}
-                                  />
+                          return (
+                            <div key={tx.id} className="relative flex items-stretch">
+                              {/* Horizontal Branch Connectors from the Outer Left Gutter into Card */}
+                              {showMultiTrack && (
+                                <div 
+                                  className="absolute select-none pointer-events-none hidden sm:block z-10"
+                                  style={{ 
+                                    left: `-${gutterWidthPx}px`, 
+                                    width: `${gutterWidthPx}px`,
+                                    top: 0,
+                                    bottom: 0
+                                  }}
+                                >
+                                  {activeFeedBanners.map((banner, bIdx) => {
+                                    const isLinked = activeTxBanners.some(b => b.id === banner.id);
+                                    if (!isLinked) return null;
 
-                                  {/* Node dot & Horizontal connector branching out into the transaction card */}
-                                  {isLinked && (() => {
-                                    // If transaction has multiple banners, space out branch points vertically
-                                    const linkedIndex = txBanners.findIndex(b => b.id === banner.id);
-                                    const totalLinked = txBanners.length;
+                                    const lineLeftPx = bIdx * 18 + 10;
+                                    const linkedIndex = activeTxBanners.findIndex(b => b.id === banner.id);
+                                    const totalLinked = activeTxBanners.length;
                                     const topOffsetPercent = totalLinked === 1 ? 50 : Math.round(((linkedIndex + 1) / (totalLinked + 1)) * 100);
                                     const connectorWidthPx = gutterWidthPx - lineLeftPx;
 
                                     return (
                                       <div 
-                                        className="absolute -translate-y-1/2 flex items-center z-10" 
-                                        style={{ top: `${topOffsetPercent}%` }}
+                                        key={banner.id}
+                                        className="absolute -translate-y-1/2 flex items-center pointer-events-auto"
+                                        style={{ 
+                                          left: `${lineLeftPx}px`,
+                                          top: `${topOffsetPercent}%` 
+                                        }}
                                       >
-                                        {/* Connector node bullet */}
+                                        {/* Connector bullet node on the vertical track */}
                                         <div 
-                                          className="w-2.5 h-2.5 rounded-full border-2 border-[var(--bg-primary)] shadow-sm -translate-x-1/2 shrink-0 transition-transform hover:scale-125"
+                                          className="w-3 h-3 rounded-full border-2 border-[var(--bg-primary)] shadow-md -translate-x-1/2 shrink-0 transition-transform hover:scale-125 cursor-pointer"
                                           style={{ backgroundColor: banner.color }}
                                           title={`Linked to: ${banner.name}`}
                                         />
-                                        {/* Horizontal branch line connecting to the card */}
+                                        {/* Horizontal branch line connecting into the card */}
                                         <div 
                                           className="h-[2px] transition-all"
                                           style={{ 
@@ -1317,229 +1474,229 @@ export const App: React.FC = () => {
                                         />
                                       </div>
                                     );
-                                  })()}
-                                </div>
-                              );
-                            })}
-                          </div>
-                        )}
-
-                        {/* Transaction Card */}
-                        <div
-                          className={`apple-card apple-card-interactive p-4 flex flex-1 flex-col sm:flex-row sm:items-center justify-between gap-3 relative transition-all overflow-hidden ${
-                            isCancelled ? 'opacity-55' : ''
-                          } ${
-                            isSelected ? 'ring-2 ring-[var(--accent)] bg-[var(--accent-bg)]/30' : ''
-                          }`}
-                          onClick={isSelectionMode ? () => handleToggleTxSelection(tx.id) : undefined}
-                        >
-                          {/* Left Accent Stripe: Divided equally among all associated banners */}
-                          {showConnectingLine && txBanners.length > 0 && (
-                            <div 
-                              className="absolute left-0 top-0 bottom-0 w-2 transition-all shadow-xs"
-                              style={leftEdgeStyle}
-                              title={`Linked to: ${txBanners.map(b => b.name).join(', ')}`}
-                            />
-                          )}
-
-                          {/* Left: Checkbox (in selection mode), Indicator, Mode badge, Description, and Details */}
-                          <div className={`flex items-start sm:items-center gap-3.5 min-w-0 ${showConnectingLine && txBanners.length > 0 ? 'pl-1' : ''}`}>
-                            {/* Radio / Checkbox Tick in Selection Mode */}
-                            {isSelectionMode && (
-                              <div 
-                                onClick={(e) => { e.stopPropagation(); handleToggleTxSelection(tx.id); }}
-                                className="shrink-0 cursor-pointer pt-0.5 sm:pt-0"
-                              >
-                                <div className={`w-5 h-5 rounded-full border flex items-center justify-center transition-all ${
-                                  isSelected 
-                                    ? 'bg-[var(--accent)] border-[var(--accent)] text-white shadow-sm scale-110' 
-                                    : 'border-[var(--text-secondary)]/50 bg-[var(--bg-secondary)] hover:border-[var(--accent)]'
-                                }`}>
-                                  {isSelected ? (
-                                    <Check className="w-3 h-3 stroke-[3]" />
-                                  ) : (
-                                    <div className="w-1.5 h-1.5 rounded-full bg-transparent" />
-                                  )}
-                                </div>
-                              </div>
-                            )}
-
-                            {/* Type icon avatar */}
-                            <div 
-                              className={`p-2.5 rounded-xl shrink-0 mt-0.5 sm:mt-0 ${
-                                tx.type === 'expense'
-                                  ? 'bg-rose-500/10 text-rose-400'
-                                  : tx.type === 'income'
-                                  ? 'bg-emerald-500/10 text-emerald-400'
-                                  : 'bg-purple-500/10 text-purple-400'
-                              }`}
-                            >
-                              {tx.type === 'expense' && <TrendingDown className="w-4 h-4" />}
-                              {tx.type === 'income' && <TrendingUp className="w-4 h-4" />}
-                              {tx.type === 'transfer' && <ArrowRightLeft className="w-4 h-4" />}
-                            </div>
-
-                            {/* Info */}
-                            <div className="space-y-1 min-w-0">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <span className={`text-sm font-medium ${isCancelled ? 'line-through text-[var(--text-secondary)]' : 'text-[var(--text-primary)]'}`}>
-                                  {tx.description}
-                                </span>
-
-                                {/* Mode badge */}
-                                {mode && (
-                                  <span 
-                                    className="text-[11px] px-2 py-0.5 rounded-md font-medium flex items-center gap-1 border border-black/10 text-white"
-                                    style={{ backgroundColor: mode.color }}
-                                  >
-                                    {renderModeIcon(mode.icon, "w-3 h-3")}
-                                    {mode.name}
-                                  </span>
-                                )}
-
-                                {/* Transfer Destination Mode */}
-                                {toMode && (
-                                  <span 
-                                    className="text-[11px] px-2 py-0.5 rounded-md font-medium flex items-center gap-1 border border-black/10 text-white"
-                                    style={{ backgroundColor: toMode.color }}
-                                  >
-                                    → {toMode.name}
-                                  </span>
-                                )}
-
-                                {/* Category tag */}
-                                <span className="text-[10px] px-2 py-0.5 rounded-md bg-[var(--bg-secondary)] border border-[var(--border-light)] text-[var(--text-secondary)] font-medium">
-                                  {tx.category}
-                                </span>
-
-                                {/* Banner Badges */}
-                                {txBanners.map(banner => (
-                                  <span
-                                    key={banner.id}
-                                    className="text-[10px] px-2 py-0.5 rounded-md font-medium flex items-center gap-1 text-white shadow-xs"
-                                    style={{ backgroundColor: banner.color }}
-                                    title={`Linked to banner: ${banner.name}`}
-                                  >
-                                    <Bookmark className="w-2.5 h-2.5" />
-                                    {banner.name}
-                                  </span>
-                                ))}
-
-                                {/* Recurrence & Due Date badges */}
-                                {tx.recurrence && tx.recurrence !== 'none' && (
-                                  <span className="text-[10px] px-2 py-0.5 rounded-md bg-purple-500/10 text-purple-400 border border-purple-500/20 font-medium flex items-center gap-1">
-                                    <Repeat className="w-2.5 h-2.5" />
-                                    {formatRecurrenceLabel(tx.recurrence, tx.recurrenceDayOfWeek, tx.recurrenceDayOfMonth)}
-                                  </span>
-                                )}
-
-                                {tx.recurrence && tx.recurrence !== 'none' && (() => {
-                                  const dueInfo = getRecurrenceDueInfo(tx.nextDueDate);
-                                  if (!dueInfo) return null;
-                                  if (dueInfo.isOverdue) {
-                                    return (
-                                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-rose-500/15 text-rose-400 border border-rose-500/30 font-medium flex items-center gap-1">
-                                        <Clock className="w-2.5 h-2.5" /> Overdue ({Math.abs(dueInfo.diffDays)}d)
-                                      </span>
-                                    );
-                                  }
-                                  if (dueInfo.isDueToday) {
-                                    return (
-                                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/30 font-medium flex items-center gap-1">
-                                        <Bell className="w-2.5 h-2.5" /> Due Today
-                                      </span>
-                                    );
-                                  }
-                                  if (dueInfo.isDueSoon) {
-                                    return (
-                                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-medium flex items-center gap-1">
-                                        <Clock className="w-2.5 h-2.5" /> In {dueInfo.diffDays}d
-                                      </span>
-                                    );
-                                  }
-                                  return (
-                                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--bg-secondary)] text-[var(--text-secondary)] border border-[var(--border-light)] font-medium">
-                                      Next: {dueInfo.formattedDueDate}
-                                    </span>
-                                  );
-                                })()}
-
-                                {/* Cancelled badge */}
-                                {isCancelled && (
-                                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 font-medium">
-                                    Not Deducted
-                                  </span>
-                                )}
-                              </div>
-
-                              {/* Additional notes */}
-                              {tx.notes && !/^\+?[\d.]+\$?\s*(transfer\s*)?(fee|charge)$/i.test(tx.notes.trim()) && (
-                                <div className="flex items-center gap-3 text-xs text-[var(--text-secondary)] flex-wrap">
-                                  <span className="italic">Note: "{tx.notes}"</span>
+                                  })}
                                 </div>
                               )}
-                            </div>
-                          </div>
 
-                          {/* Right: Amount and Action Buttons */}
-                          <div className="flex items-center justify-between sm:justify-end gap-4 shrink-0 pl-11 sm:pl-0">
-                            <div className="text-right flex flex-col items-end">
-                              <span 
-                                className={`text-base sm:text-lg font-bold font-mono ${
-                                  isCancelled 
-                                    ? 'text-[var(--text-secondary)] line-through' 
-                                    : tx.type === 'expense' 
-                                    ? 'text-rose-400' 
-                                    : tx.type === 'income' 
-                                    ? 'text-emerald-400' 
-                                    : 'text-purple-400'
+                              {/* Transaction Card */}
+                              <div
+                                className={`apple-card apple-card-interactive p-4 flex flex-1 flex-col sm:flex-row sm:items-center justify-between gap-3 relative transition-all overflow-hidden ${
+                                  isCancelled ? 'opacity-55' : ''
+                                } ${
+                                  isSelected ? 'ring-2 ring-[var(--accent)] bg-[var(--accent-bg)]/30' : ''
                                 }`}
+                                onClick={isSelectionMode ? () => handleToggleTxSelection(tx.id) : undefined}
                               >
-                                {tx.type === 'income' ? '+' : tx.type === 'expense' ? '-' : ''}${tx.amount.toFixed(2)}
-                              </span>
-                              {tx.type === 'transfer' && tx.fee !== undefined && tx.fee > 0 && (
-                                <span 
-                                  className={`text-xs font-semibold font-mono text-rose-400 ${
-                                    isCancelled ? 'line-through opacity-60' : ''
-                                  }`}
-                                >
-                                  -${tx.fee.toFixed(2)} fee
-                                </span>
-                              )}
-                            </div>
+                                {/* Left Accent Stripe: Divided equally among all associated banners */}
+                                {bannerLineMode !== 'off' && txBanners.length > 0 && (
+                                  <div 
+                                    className="absolute left-0 top-0 bottom-0 w-2 transition-all shadow-xs"
+                                    style={leftEdgeStyle}
+                                    title={`Linked to: ${txBanners.map(b => b.name).join(', ')}`}
+                                  />
+                                )}
 
-                            <div className="flex items-center gap-1">
-                              <button
-                                onClick={() => handleRepeatTransaction(tx)}
-                                className="p-1.5 rounded-lg hover:bg-purple-500/10 text-[var(--text-secondary)] hover:text-purple-400 transition-colors"
-                                title="Repeat this expense for today"
-                              >
-                                <Repeat className="w-4 h-4" />
-                              </button>
-                              <button
-                                onClick={() => { setEditingTx(tx); setIsTxModalOpen(true); }}
-                                className="p-1.5 rounded-lg hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
-                                title="Edit transaction"
-                              >
-                                <Edit3 className="w-4 h-4" />
-                              </button>
-                              <button
-                                onClick={() => handleDeleteTransaction(tx.id)}
-                                className="p-1.5 rounded-lg hover:bg-red-500/10 text-red-400 hover:text-red-500 transition-colors"
-                                title="Delete transaction"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
+                                {/* Left: Checkbox (in selection mode), Indicator, Mode badge, Description, and Details */}
+                                <div className={`flex items-start sm:items-center gap-3.5 min-w-0 ${bannerLineMode !== 'off' && txBanners.length > 0 ? 'pl-1' : ''}`}>
+                                  {/* Radio / Checkbox Tick in Selection Mode */}
+                                  {isSelectionMode && (
+                                    <div 
+                                      onClick={(e) => { e.stopPropagation(); handleToggleTxSelection(tx.id); }}
+                                      className="shrink-0 cursor-pointer pt-0.5 sm:pt-0"
+                                    >
+                                      <div className={`w-5 h-5 rounded-full border flex items-center justify-center transition-all ${
+                                        isSelected 
+                                          ? 'bg-[var(--accent)] border-[var(--accent)] text-white shadow-sm scale-110' 
+                                          : 'border-[var(--text-secondary)]/50 bg-[var(--bg-secondary)] hover:border-[var(--accent)]'
+                                      }`}>
+                                        {isSelected ? (
+                                          <Check className="w-3 h-3 stroke-[3]" />
+                                        ) : (
+                                          <div className="w-1.5 h-1.5 rounded-full bg-transparent" />
+                                        )}
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {/* Type icon avatar */}
+                                  <div 
+                                    className={`p-2.5 rounded-xl shrink-0 mt-0.5 sm:mt-0 ${
+                                      tx.type === 'expense'
+                                        ? 'bg-rose-500/10 text-rose-400'
+                                        : tx.type === 'income'
+                                        ? 'bg-emerald-500/10 text-emerald-400'
+                                        : 'bg-purple-500/10 text-purple-400'
+                                    }`}
+                                  >
+                                    {tx.type === 'expense' && <TrendingDown className="w-4 h-4" />}
+                                    {tx.type === 'income' && <TrendingUp className="w-4 h-4" />}
+                                    {tx.type === 'transfer' && <ArrowRightLeft className="w-4 h-4" />}
+                                  </div>
+
+                                  {/* Info */}
+                                  <div className="space-y-1 min-w-0">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      <span className={`text-sm font-medium ${isCancelled ? 'line-through text-[var(--text-secondary)]' : 'text-[var(--text-primary)]'}`}>
+                                        {tx.description}
+                                      </span>
+
+                                      {/* Mode badge */}
+                                      {mode && (
+                                        <span 
+                                          className="text-[11px] px-2 py-0.5 rounded-md font-medium flex items-center gap-1 border border-black/10 text-white"
+                                          style={{ backgroundColor: mode.color }}
+                                        >
+                                          {renderModeIcon(mode.icon, "w-3 h-3")}
+                                          {mode.name}
+                                        </span>
+                                      )}
+
+                                      {/* Transfer Destination Mode */}
+                                      {toMode && (
+                                        <span 
+                                          className="text-[11px] px-2 py-0.5 rounded-md font-medium flex items-center gap-1 border border-black/10 text-white"
+                                          style={{ backgroundColor: toMode.color }}
+                                        >
+                                          → {toMode.name}
+                                        </span>
+                                      )}
+
+                                      {/* Category tag */}
+                                      <span className="text-[10px] px-2 py-0.5 rounded-md bg-[var(--bg-secondary)] border border-[var(--border-light)] text-[var(--text-secondary)] font-medium">
+                                        {tx.category}
+                                      </span>
+
+                                      {/* Banner Badges */}
+                                      {txBanners.map(banner => (
+                                        <span
+                                          key={banner.id}
+                                          className="text-[10px] px-2 py-0.5 rounded-md font-medium flex items-center gap-1 text-white shadow-xs"
+                                          style={{ backgroundColor: banner.color }}
+                                          title={`Linked to banner: ${banner.name}`}
+                                        >
+                                          <Bookmark className="w-2.5 h-2.5" />
+                                          {banner.name}
+                                        </span>
+                                      ))}
+
+                                      {/* Recurrence & Due Date badges */}
+                                      {tx.recurrence && tx.recurrence !== 'none' && (
+                                        <span className="text-[10px] px-2 py-0.5 rounded-md bg-purple-500/10 text-purple-400 border border-purple-500/20 font-medium flex items-center gap-1">
+                                          <Repeat className="w-2.5 h-2.5" />
+                                          {formatRecurrenceLabel(tx.recurrence, tx.recurrenceDayOfWeek, tx.recurrenceDayOfMonth)}
+                                        </span>
+                                      )}
+
+                                      {tx.recurrence && tx.recurrence !== 'none' && (() => {
+                                        const dueInfo = getRecurrenceDueInfo(tx.nextDueDate);
+                                        if (!dueInfo) return null;
+                                        if (dueInfo.isOverdue) {
+                                          return (
+                                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-rose-500/15 text-rose-400 border border-rose-500/30 font-medium flex items-center gap-1">
+                                              <Clock className="w-2.5 h-2.5" /> Overdue ({Math.abs(dueInfo.diffDays)}d)
+                                            </span>
+                                          );
+                                        }
+                                        if (dueInfo.isDueToday) {
+                                          return (
+                                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/30 font-medium flex items-center gap-1">
+                                              <Bell className="w-2.5 h-2.5" /> Due Today
+                                            </span>
+                                          );
+                                        }
+                                        if (dueInfo.isDueSoon) {
+                                          return (
+                                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-medium flex items-center gap-1">
+                                              <Clock className="w-2.5 h-2.5" /> In {dueInfo.diffDays}d
+                                            </span>
+                                          );
+                                        }
+                                        return (
+                                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--bg-secondary)] text-[var(--text-secondary)] border border-[var(--border-light)] font-medium">
+                                            Next: {dueInfo.formattedDueDate}
+                                          </span>
+                                        );
+                                      })()}
+
+                                      {/* Cancelled badge */}
+                                      {isCancelled && (
+                                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 font-medium">
+                                          Not Deducted
+                                        </span>
+                                      )}
+                                    </div>
+
+                                    {/* Additional notes */}
+                                    {tx.notes && !/^\+?[\d.]+\$?\s*(transfer\s*)?(fee|charge)$/i.test(tx.notes.trim()) && (
+                                      <div className="flex items-center gap-3 text-xs text-[var(--text-secondary)] flex-wrap">
+                                        <span className="italic">Note: "{tx.notes}"</span>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+
+                                {/* Right: Amount and Action Buttons */}
+                                <div className="flex items-center justify-between sm:justify-end gap-4 shrink-0 pl-11 sm:pl-0">
+                                  <div className="text-right flex flex-col items-end">
+                                    <span 
+                                      className={`text-base sm:text-lg font-bold font-mono ${
+                                        isCancelled 
+                                          ? 'text-[var(--text-secondary)] line-through' 
+                                          : tx.type === 'expense' 
+                                          ? 'text-rose-400' 
+                                          : tx.type === 'income' 
+                                          ? 'text-emerald-400' 
+                                          : 'text-purple-400'
+                                      }`}
+                                    >
+                                      {tx.type === 'income' ? '+' : tx.type === 'expense' ? '-' : ''}${tx.amount.toFixed(2)}
+                                    </span>
+                                    {tx.type === 'transfer' && tx.fee !== undefined && tx.fee > 0 && (
+                                      <span 
+                                        className={`text-xs font-semibold font-mono text-rose-400 ${
+                                          isCancelled ? 'line-through opacity-60' : ''
+                                        }`}
+                                      >
+                                        -${tx.fee.toFixed(2)} fee
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  <div className="flex items-center gap-1">
+                                    <button
+                                      onClick={() => handleRepeatTransaction(tx)}
+                                      className="p-1.5 rounded-lg hover:bg-purple-500/10 text-[var(--text-secondary)] hover:text-purple-400 transition-colors"
+                                      title="Repeat this expense for today"
+                                    >
+                                      <Repeat className="w-4 h-4" />
+                                    </button>
+                                    <button
+                                      onClick={() => { setEditingTx(tx); setIsTxModalOpen(true); }}
+                                      className="p-1.5 rounded-lg hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
+                                      title="Edit transaction"
+                                    >
+                                      <Edit3 className="w-4 h-4" />
+                                    </button>
+                                    <button
+                                      onClick={() => handleDeleteTransaction(tx.id)}
+                                      className="p-1.5 rounded-lg hover:bg-red-500/10 text-red-400 hover:text-red-500 transition-colors"
+                                      title="Delete transaction"
+                                    >
+                                      <Trash2 className="w-4 h-4" />
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
                             </div>
-                          </div>
-                        </div>
+                          );
+                        })}
                       </div>
-                    );
-                  })}
+                    </div>
+                  ))}
                 </div>
               </div>
-            ))
-          )}
+            );
+          })()}
         </section>
       </main>
 
