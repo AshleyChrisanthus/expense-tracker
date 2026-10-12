@@ -149,13 +149,21 @@ export const App: React.FC = () => {
   // 1-Click Repeat transaction for today
   const handleRepeatTransaction = async (tx: Transaction) => {
     const today = new Date().toISOString().split('T')[0];
+    const isWeek = tx.recurrence === 'weekly' || tx.recurrence === 'biweekly';
+    const isMonth = tx.recurrence === 'monthly';
+
     const newTx: Transaction = {
       ...tx,
       id: 'tx-' + Date.now(),
       date: today,
       status: 'completed',
       nextDueDate: tx.recurrence && tx.recurrence !== 'none'
-        ? computeNextDueDate(today, tx.recurrence)
+        ? computeNextDueDate(
+            today, 
+            tx.recurrence, 
+            isWeek ? tx.recurrenceDayOfWeek : undefined, 
+            isMonth ? tx.recurrenceDayOfMonth : undefined
+          )
         : undefined,
       createdAt: Date.now()
     };
@@ -169,7 +177,15 @@ export const App: React.FC = () => {
   const handlePayRecurring = async (tx: Transaction, currentEffectiveDueDate?: string) => {
     const today = new Date().toISOString().split('T')[0];
     const baseDate = currentEffectiveDueDate || tx.nextDueDate || today;
-    const nextDate = computeNextDueDate(baseDate, tx.recurrence || 'weekly');
+    const isWeek = tx.recurrence === 'weekly' || tx.recurrence === 'biweekly';
+    const isMonth = tx.recurrence === 'monthly';
+
+    const nextDate = computeNextDueDate(
+      baseDate, 
+      tx.recurrence || 'weekly',
+      isWeek ? tx.recurrenceDayOfWeek : undefined,
+      isMonth ? tx.recurrenceDayOfMonth : undefined
+    );
 
     // 1. Log payment instance for today
     const newTx: Transaction = {
@@ -178,6 +194,8 @@ export const App: React.FC = () => {
       date: today,
       status: 'completed',
       recurrence: undefined,
+      recurrenceDayOfWeek: undefined,
+      recurrenceDayOfMonth: undefined,
       nextDueDate: undefined,
       createdAt: Date.now()
     };
@@ -288,7 +306,14 @@ export const App: React.FC = () => {
     });
 
     return Array.from(recurringMap.values()).map(item => {
-      const effectiveDueDate = item.nextDueDate || getNextFutureDueDate(item.date, item.recurrence!);
+      const isWeek = item.recurrence === 'weekly' || item.recurrence === 'biweekly';
+      const isMonth = item.recurrence === 'monthly';
+      const effectiveDueDate = item.nextDueDate || getNextFutureDueDate(
+        item.date, 
+        item.recurrence!,
+        isWeek ? item.recurrenceDayOfWeek : undefined,
+        isMonth ? item.recurrenceDayOfMonth : undefined
+      );
       const dueInfo = getRecurrenceDueInfo(effectiveDueDate);
       return {
         item,
@@ -737,7 +762,7 @@ export const App: React.FC = () => {
                           {item.description}
                         </span>
                         <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/15 text-purple-400 font-medium shrink-0">
-                          {formatRecurrenceLabel(item.recurrence)}
+                          {formatRecurrenceLabel(item.recurrence, item.recurrenceDayOfWeek, item.recurrenceDayOfMonth)}
                         </span>
                       </div>
                       <div className="flex items-center gap-2 text-xs">
@@ -896,7 +921,7 @@ export const App: React.FC = () => {
                               {tx.recurrence && tx.recurrence !== 'none' && (
                                 <span className="text-[10px] px-2 py-0.5 rounded-md bg-purple-500/10 text-purple-400 border border-purple-500/20 font-medium flex items-center gap-1">
                                   <Repeat className="w-2.5 h-2.5" />
-                                  {formatRecurrenceLabel(tx.recurrence)}
+                                  {formatRecurrenceLabel(tx.recurrence, tx.recurrenceDayOfWeek, tx.recurrenceDayOfMonth)}
                                 </span>
                               )}
 

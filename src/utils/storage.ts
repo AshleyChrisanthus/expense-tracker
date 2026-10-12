@@ -8893,6 +8893,7 @@ export const INITIAL_TRANSACTIONS: Transaction[] = [
     "category": "Rent & Housing",
     "description": "room rent",
     "recurrence": "weekly",
+    "recurrenceDayOfWeek": 0,
     "status": "completed",
     "createdAt": 1711846800000
   },
