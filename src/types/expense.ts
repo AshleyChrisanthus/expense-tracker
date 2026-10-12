@@ -9,6 +9,13 @@ export interface PaymentMode {
   isSystem?: boolean;
 }
 
+export interface Banner {
+  id: string;
+  name: string;
+  color: string; // Hex color for banner tag and connecting line
+  createdAt: number;
+}
+
 export interface Transaction {
   id: string;
   date: string; // YYYY-MM-DD
@@ -25,6 +32,7 @@ export interface Transaction {
   recurrenceDayOfWeek?: number; // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
   recurrenceDayOfMonth?: number; // 1 to 31
   nextDueDate?: string; // YYYY-MM-DD
+  bannerIds?: string[]; // IDs of banners/groups this transaction belongs to
   createdAt: number;
 }
 
@@ -33,4 +41,5 @@ export interface ExpenseDataState {
   paymentModes: PaymentMode[];
   transactions: Transaction[];
   categories: string[];
+  banners?: Banner[];
 }

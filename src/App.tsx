@@ -23,17 +23,21 @@ import {
   Bell,
   Check,
   Clock,
-  Tag
+  Tag,
+  Bookmark,
+  CheckSquare,
+  GitCommit
 } from 'lucide-react';
 
 import { ThemeMode } from './types/theme';
 import { toggleThemeMode } from './styles/theme';
 import { ThemeModal } from './components/ThemeModal';
-import { Transaction, PaymentMode, ExpenseDataState } from './types/expense';
+import { Transaction, PaymentMode, ExpenseDataState, Banner } from './types/expense';
 import { loadExpenseData, saveExpenseData } from './utils/storage';
 import { TransactionModal } from './components/TransactionModal';
 import { PaymentModesModal } from './components/PaymentModesModal';
 import { CategoriesModal } from './components/CategoriesModal';
+import { BannersModal } from './components/BannersModal';
 import { ImportExportModal } from './components/ImportExportModal';
 import { db } from './db';
 import { 
@@ -58,6 +62,7 @@ export const App: React.FC = () => {
   const [editingTx, setEditingTx] = useState<Transaction | null>(null);
   const [isModesModalOpen, setIsModesModalOpen] = useState(false);
   const [isCategoriesModalOpen, setIsCategoriesModalOpen] = useState(false);
+  const [isBannersModalOpen, setIsBannersModalOpen] = useState(false);
   const [isImportExportOpen, setIsImportExportOpen] = useState(false);
 
   // Filters & Search
@@ -66,6 +71,12 @@ export const App: React.FC = () => {
   const [selectedTypeFilter, setSelectedTypeFilter] = useState<string>('all');
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>('all');
   const [selectedMonthFilter, setSelectedMonthFilter] = useState<string>('all');
+  const [selectedBannerFilter, setSelectedBannerFilter] = useState<string>('all');
+
+  // Multi-selection & Connective line states
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [selectedTxIds, setSelectedTxIds] = useState<Set<string>>(new Set());
+  const [showConnectingLine, setShowConnectingLine] = useState(true);
 
   // Load from Dexie on mount
   useEffect(() => {
@@ -74,7 +85,8 @@ export const App: React.FC = () => {
         version: 1,
         transactions: initResult.transactions,
         paymentModes: initResult.paymentModes,
-        categories: initResult.categories
+        categories: initResult.categories,
+        banners: initResult.banners
       });
     }).catch(err => {
       console.warn('Dexie IndexedDB initialization fallback:', err);
@@ -259,6 +271,134 @@ export const App: React.FC = () => {
     });
   };
 
+  // Banner CRUD handlers
+  const handleSaveBanners = async (banners: Banner[]) => {
+    try {
+      await db.saveBanners(banners);
+    } catch (e) {
+      console.error('Dexie save banners failed:', e);
+    }
+
+    setDataState(prev => ({
+      ...prev,
+      banners
+    }));
+  };
+
+  const handleDeleteBanner = async (bannerId: string) => {
+    try {
+      await db.deleteBanner(bannerId);
+    } catch (e) {
+      console.error('Dexie delete banner failed:', e);
+    }
+
+    setDataState(prev => ({
+      ...prev,
+      banners: (prev.banners || []).filter(b => b.id !== bannerId),
+      transactions: prev.transactions.map(t => 
+        t.bannerIds && t.bannerIds.includes(bannerId)
+          ? { ...t, bannerIds: t.bannerIds.filter(id => id !== bannerId) }
+          : t
+      )
+    }));
+
+    if (selectedBannerFilter === bannerId) {
+      setSelectedBannerFilter('all');
+    }
+  };
+
+  // Selection mode & Batch banner assignment handlers
+  const handleToggleTxSelection = (id: string) => {
+    setSelectedTxIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const handleSelectAllVisible = () => {
+    if (selectedTxIds.size === filteredTransactions.length) {
+      setSelectedTxIds(new Set());
+    } else {
+      setSelectedTxIds(new Set(filteredTransactions.map(t => t.id)));
+    }
+  };
+
+  const handleBatchAssignBanner = async (bannerId: string) => {
+    if (selectedTxIds.size === 0) return;
+
+    const bannerObj = (dataState.banners || []).find(b => b.id === bannerId);
+    const updatedTransactions = dataState.transactions.map(tx => {
+      if (selectedTxIds.has(tx.id)) {
+        const existingBanners = tx.bannerIds || [];
+        if (!existingBanners.includes(bannerId)) {
+          return {
+            ...tx,
+            bannerIds: [...existingBanners, bannerId]
+          };
+        }
+      }
+      return tx;
+    });
+
+    try {
+      for (const tx of updatedTransactions) {
+        if (selectedTxIds.has(tx.id)) {
+          await db.putTransaction(tx);
+        }
+      }
+    } catch (e) {
+      console.error('Dexie batch assign banner failed:', e);
+    }
+
+    setDataState(prev => ({
+      ...prev,
+      transactions: updatedTransactions
+    }));
+
+    setToastMessage(`Added ${selectedTxIds.size} transaction(s) to "${bannerObj?.name || 'Banner'}"`);
+    setTimeout(() => setToastMessage(null), 3000);
+    setSelectedTxIds(new Set());
+  };
+
+  const handleBatchRemoveBanner = async (bannerId: string) => {
+    if (selectedTxIds.size === 0) return;
+
+    const bannerObj = (dataState.banners || []).find(b => b.id === bannerId);
+    const updatedTransactions = dataState.transactions.map(tx => {
+      if (selectedTxIds.has(tx.id) && tx.bannerIds) {
+        return {
+          ...tx,
+          bannerIds: tx.bannerIds.filter(id => id !== bannerId)
+        };
+      }
+      return tx;
+    });
+
+    try {
+      for (const tx of updatedTransactions) {
+        if (selectedTxIds.has(tx.id)) {
+          await db.putTransaction(tx);
+        }
+      }
+    } catch (e) {
+      console.error('Dexie batch remove banner failed:', e);
+    }
+
+    setDataState(prev => ({
+      ...prev,
+      transactions: updatedTransactions
+    }));
+
+    setToastMessage(`Removed ${selectedTxIds.size} transaction(s) from "${bannerObj?.name || 'Banner'}"`);
+    setTimeout(() => setToastMessage(null), 3000);
+    setSelectedTxIds(new Set());
+  };
+
   const handleUpdateDataState = async (newState: ExpenseDataState) => {
     try {
       await db.importData(newState, 'replace');
@@ -322,9 +462,16 @@ export const App: React.FC = () => {
         return false;
       }
 
+      // Banner filter
+      if (selectedBannerFilter !== 'all') {
+        if (!tx.bannerIds || !tx.bannerIds.includes(selectedBannerFilter)) {
+          return false;
+        }
+      }
+
       return true;
     }).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime() || b.createdAt - a.createdAt);
-  }, [dataState.transactions, searchQuery, selectedModeFilter, selectedTypeFilter, selectedCategoryFilter, selectedMonthFilter]);
+  }, [dataState.transactions, searchQuery, selectedModeFilter, selectedTypeFilter, selectedCategoryFilter, selectedMonthFilter, selectedBannerFilter]);
 
   // Upcoming recurring expenses for notifications & reminders
   const upcomingRecurring = useMemo(() => {
@@ -650,9 +797,56 @@ export const App: React.FC = () => {
           </button>
         </div>
 
+        {/* Quick Banners / Groups Pills Bar */}
+        <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
+          <span className="text-xs font-semibold text-[var(--text-secondary)] uppercase tracking-wider shrink-0 mr-1 flex items-center gap-1">
+            <Bookmark className="w-3.5 h-3.5 text-purple-400" />
+            Banners:
+          </span>
+          <button
+            onClick={() => setSelectedBannerFilter('all')}
+            className={`px-3 py-1.5 rounded-xl border text-xs font-medium transition-all shrink-0 ${
+              selectedBannerFilter === 'all'
+                ? 'border-[var(--accent)] bg-[var(--accent-bg)] text-[var(--text-primary)] shadow-sm'
+                : 'border-[var(--border-light)] bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:border-[var(--text-secondary)]/30'
+            }`}
+          >
+            All Banners
+          </button>
+          {(dataState.banners || []).map(banner => {
+            const count = dataState.transactions.filter(t => t.bannerIds?.includes(banner.id)).length;
+            const isSelected = selectedBannerFilter === banner.id;
+            return (
+              <button
+                key={banner.id}
+                onClick={() => setSelectedBannerFilter(isSelected ? 'all' : banner.id)}
+                className={`px-3 py-1.5 rounded-xl border text-xs font-medium flex items-center gap-2 transition-all shrink-0 ${
+                  isSelected
+                    ? 'shadow-sm ring-1 ring-white/30 text-white'
+                    : 'border-[var(--border-light)] bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:border-[var(--text-secondary)]/30'
+                }`}
+                style={isSelected ? { backgroundColor: banner.color } : {}}
+              >
+                <span 
+                  className={`w-2.5 h-2.5 rounded-full inline-block ${isSelected ? 'bg-white' : ''}`}
+                  style={!isSelected ? { backgroundColor: banner.color } : {}}
+                />
+                <span className="font-medium">{banner.name}</span>
+                <span className="font-mono text-[11px] opacity-80 font-bold">({count})</span>
+              </button>
+            );
+          })}
+          <button
+            onClick={() => setIsBannersModalOpen(true)}
+            className="px-2.5 py-1.5 rounded-xl border border-dashed border-[var(--border-light)] hover:border-[var(--accent)] text-xs text-[var(--accent)] flex items-center gap-1 shrink-0"
+          >
+            <Plus className="w-3.5 h-3.5" /> Manage Banners
+          </button>
+        </div>
+
         {/* Filters and Search Bar */}
         <section className="apple-card p-4 space-y-3">
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
             {/* Search Input */}
             <div className="relative">
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-[var(--text-secondary)]">
@@ -710,6 +904,20 @@ export const App: React.FC = () => {
               </select>
             </div>
 
+            {/* Filter by Banner */}
+            <div>
+              <select
+                value={selectedBannerFilter}
+                onChange={(e) => setSelectedBannerFilter(e.target.value)}
+                className="apple-input text-xs"
+              >
+                <option value="all">All Banners / Groups</option>
+                {(dataState.banners || []).map(b => (
+                  <option key={b.id} value={b.id}>{b.name}</option>
+                ))}
+              </select>
+            </div>
+
             {/* Filter by Month */}
             <div>
               <select
@@ -726,7 +934,7 @@ export const App: React.FC = () => {
           </div>
 
           {/* Active Filter Tags */}
-          {(selectedTypeFilter !== 'all' || selectedModeFilter !== 'all' || selectedCategoryFilter !== 'all' || selectedMonthFilter !== 'all' || searchQuery.trim()) && (
+          {(selectedTypeFilter !== 'all' || selectedModeFilter !== 'all' || selectedCategoryFilter !== 'all' || selectedMonthFilter !== 'all' || selectedBannerFilter !== 'all' || searchQuery.trim()) && (
             <div className="flex items-center gap-2 pt-1 border-t border-[var(--border-light)] text-xs text-[var(--text-secondary)] flex-wrap">
               <span>Active filters:</span>
               {selectedTypeFilter !== 'all' && (
@@ -742,6 +950,11 @@ export const App: React.FC = () => {
               {selectedCategoryFilter !== 'all' && (
                 <span className="px-2 py-0.5 rounded-full bg-[var(--accent-bg)] text-[var(--accent)] font-medium">
                   Category: {selectedCategoryFilter}
+                </span>
+              )}
+              {selectedBannerFilter !== 'all' && (
+                <span className="px-2 py-0.5 rounded-full bg-[var(--accent-bg)] text-[var(--accent)] font-medium flex items-center gap-1">
+                  Banner: {(dataState.banners || []).find(b => b.id === selectedBannerFilter)?.name}
                 </span>
               )}
               {selectedMonthFilter !== 'all' && (
@@ -760,6 +973,7 @@ export const App: React.FC = () => {
                   setSelectedModeFilter('all');
                   setSelectedCategoryFilter('all');
                   setSelectedMonthFilter('all');
+                  setSelectedBannerFilter('all');
                   setSearchQuery('');
                 }}
                 className="text-xs text-rose-400 hover:underline ml-2"
@@ -845,7 +1059,7 @@ export const App: React.FC = () => {
 
         {/* Transactions List Grouped by Date (Google Keep style) */}
         <section className="space-y-6">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <h2 className="text-base font-semibold text-[var(--text-primary)] flex items-center gap-2">
               <Calendar className="w-4 h-4 text-[var(--accent)]" />
               Expense Feed
@@ -853,7 +1067,114 @@ export const App: React.FC = () => {
                 ({filteredTransactions.length} items)
               </span>
             </h2>
+
+            {/* Selection Mode & Connecting Line Toolbar Controls */}
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* Toggle Connecting Line */}
+              <button
+                type="button"
+                onClick={() => setShowConnectingLine(prev => !prev)}
+                className={`px-2.5 py-1.5 rounded-xl border text-xs font-medium flex items-center gap-1.5 transition-all ${
+                  showConnectingLine
+                    ? 'border-purple-500/40 bg-purple-500/10 text-purple-300'
+                    : 'border-[var(--border-light)] bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                }`}
+                title="Toggle visual connecting line for banner groups"
+              >
+                <GitCommit className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Banner Line:</span> {showConnectingLine ? 'On' : 'Off'}
+              </button>
+
+              {/* Toggle Selection Mode */}
+              <button
+                type="button"
+                onClick={() => {
+                  setIsSelectionMode(prev => {
+                    if (prev) setSelectedTxIds(new Set());
+                    return !prev;
+                  });
+                }}
+                className={`px-3 py-1.5 rounded-xl border text-xs font-medium flex items-center gap-1.5 transition-all ${
+                  isSelectionMode
+                    ? 'border-[var(--accent)] bg-[var(--accent)] text-white shadow-sm'
+                    : 'border-[var(--border-light)] bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                }`}
+              >
+                <CheckSquare className="w-3.5 h-3.5" />
+                {isSelectionMode ? 'Exit Select Mode' : 'Select Mode'}
+              </button>
+            </div>
           </div>
+
+          {/* Batch Actions Bar (when in selection mode) */}
+          {isSelectionMode && (
+            <div className="p-3 sm:p-4 rounded-2xl bg-[var(--bg-secondary)] border border-[var(--accent)] shadow-lg space-y-3 animate-fade-in">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-semibold text-[var(--text-primary)] flex items-center gap-1.5">
+                    <CheckSquare className="w-4 h-4 text-[var(--accent)]" />
+                    Selected: <span className="font-mono text-purple-400 font-bold">{selectedTxIds.size}</span> of {filteredTransactions.length}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleSelectAllVisible}
+                    className="text-xs text-[var(--accent)] hover:underline ml-2 font-medium"
+                  >
+                    {selectedTxIds.size === filteredTransactions.length ? 'Deselect All' : 'Select All'}
+                  </button>
+                </div>
+
+                <div className="text-[11px] text-[var(--text-secondary)]">
+                  Pick a banner below to assign or remove selected transactions
+                </div>
+              </div>
+
+              {/* Banner assignment buttons */}
+              <div className="flex items-center gap-2 flex-wrap pt-1 border-t border-[var(--border-light)]">
+                <span className="text-xs font-medium text-[var(--text-secondary)] mr-1">
+                  Assign to:
+                </span>
+                {(dataState.banners || []).map(banner => (
+                  <button
+                    key={banner.id}
+                    type="button"
+                    disabled={selectedTxIds.size === 0}
+                    onClick={() => handleBatchAssignBanner(banner.id)}
+                    className="px-2.5 py-1 rounded-lg text-xs font-medium text-white shadow-sm transition-all hover:opacity-90 disabled:opacity-40 flex items-center gap-1.5"
+                    style={{ backgroundColor: banner.color }}
+                  >
+                    <Plus className="w-3 h-3" />
+                    {banner.name}
+                  </button>
+                ))}
+
+                {(dataState.banners || []).length > 0 && selectedTxIds.size > 0 && (
+                  <div className="flex items-center gap-1.5 ml-auto">
+                    <span className="text-xs text-[var(--text-secondary)]">Remove:</span>
+                    {(dataState.banners || []).map(banner => (
+                      <button
+                        key={banner.id}
+                        type="button"
+                        onClick={() => handleBatchRemoveBanner(banner.id)}
+                        className="px-2 py-0.5 rounded text-[11px] font-medium border border-rose-500/30 bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 transition-colors"
+                        title={`Remove "${banner.name}" from selected`}
+                      >
+                        ✕ {banner.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => setIsBannersModalOpen(true)}
+                  className="px-2.5 py-1 rounded-lg border border-dashed border-[var(--border-light)] hover:border-[var(--accent)] text-xs text-[var(--accent)] flex items-center gap-1"
+                >
+                  <Plus className="w-3 h-3" /> New Banner
+                </button>
+              </div>
+            </div>
+          )}
 
           {groupedTransactions.length === 0 ? (
             <div className="apple-card p-12 text-center space-y-3">
@@ -869,6 +1190,7 @@ export const App: React.FC = () => {
                   setSelectedModeFilter('all');
                   setSelectedCategoryFilter('all');
                   setSelectedMonthFilter('all');
+                  setSelectedBannerFilter('all');
                   setSearchQuery('');
                 }}
                 className="apple-btn apple-btn-secondary text-xs"
@@ -897,21 +1219,77 @@ export const App: React.FC = () => {
                 </div>
 
                 {/* Items in Day */}
-                <div className="space-y-2">
+                <div className="space-y-2 relative">
                   {group.items.map((tx) => {
                     const mode = dataState.paymentModes.find(m => m.id === tx.paymentModeId);
                     const toMode = tx.toPaymentModeId ? dataState.paymentModes.find(m => m.id === tx.toPaymentModeId) : null;
                     const isCancelled = tx.status === 'cancelled';
+                    const isSelected = selectedTxIds.has(tx.id);
+
+                    // Resolved banner objects for this transaction
+                    const txBanners = (tx.bannerIds || [])
+                      .map(bId => (dataState.banners || []).find(b => b.id === bId))
+                      .filter((b): b is Banner => Boolean(b));
+
+                    // Primary banner (if active filter matches, use that; otherwise first banner)
+                    const activeBannerObj = selectedBannerFilter !== 'all'
+                      ? txBanners.find(b => b.id === selectedBannerFilter)
+                      : txBanners[0];
 
                     return (
                       <div
                         key={tx.id}
-                        className={`apple-card apple-card-interactive p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                        className={`apple-card apple-card-interactive p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 relative transition-all ${
                           isCancelled ? 'opacity-55' : ''
+                        } ${
+                          isSelected ? 'ring-2 ring-[var(--accent)] bg-[var(--accent-bg)]/30' : ''
                         }`}
+                        onClick={isSelectionMode ? () => handleToggleTxSelection(tx.id) : undefined}
                       >
-                        {/* Left: Indicator, Mode badge, Description, and Details */}
-                        <div className="flex items-start sm:items-center gap-3.5">
+                        {/* Connecting Line to the left for Banner group */}
+                        {showConnectingLine && activeBannerObj && (
+                          <div 
+                            className="absolute left-0 top-0 bottom-0 w-1.5 rounded-l-2xl transition-all"
+                            style={{ backgroundColor: activeBannerObj.color }}
+                            title={`Linked to banner: ${activeBannerObj.name}`}
+                          />
+                        )}
+
+                        {/* Left: Checkbox (in selection mode), Indicator, Mode badge, Description, and Details */}
+                        <div className="flex items-start sm:items-center gap-3.5 min-w-0">
+                          {/* Radio / Checkbox Tick in Selection Mode */}
+                          {isSelectionMode && (
+                            <div 
+                              onClick={(e) => { e.stopPropagation(); handleToggleTxSelection(tx.id); }}
+                              className="shrink-0 cursor-pointer pt-0.5 sm:pt-0"
+                            >
+                              <div className={`w-5 h-5 rounded-full border flex items-center justify-center transition-all ${
+                                isSelected 
+                                  ? 'bg-[var(--accent)] border-[var(--accent)] text-white shadow-sm scale-110' 
+                                  : 'border-[var(--text-secondary)]/50 bg-[var(--bg-secondary)] hover:border-[var(--accent)]'
+                              }`}>
+                                {isSelected ? (
+                                  <Check className="w-3 h-3 stroke-[3]" />
+                                ) : (
+                                  <div className="w-1.5 h-1.5 rounded-full bg-transparent" />
+                                )}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Connecting icon / dot if connecting line is on and banner exists */}
+                          {showConnectingLine && activeBannerObj && !isSelectionMode && (
+                            <div 
+                              className="shrink-0 hidden sm:flex items-center justify-center"
+                              title={`Banner: ${activeBannerObj.name}`}
+                            >
+                              <div 
+                                className="w-2.5 h-2.5 rounded-full shadow-sm"
+                                style={{ backgroundColor: activeBannerObj.color }}
+                              />
+                            </div>
+                          )}
+
                           {/* Type icon avatar */}
                           <div 
                             className={`p-2.5 rounded-xl shrink-0 mt-0.5 sm:mt-0 ${
@@ -928,7 +1306,7 @@ export const App: React.FC = () => {
                           </div>
 
                           {/* Info */}
-                          <div className="space-y-1">
+                          <div className="space-y-1 min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
                               <span className={`text-sm font-medium ${isCancelled ? 'line-through text-[var(--text-secondary)]' : 'text-[var(--text-primary)]'}`}>
                                 {tx.description}
@@ -959,6 +1337,19 @@ export const App: React.FC = () => {
                               <span className="text-[10px] px-2 py-0.5 rounded-md bg-[var(--bg-secondary)] border border-[var(--border-light)] text-[var(--text-secondary)] font-medium">
                                 {tx.category}
                               </span>
+
+                              {/* Banner Badges */}
+                              {txBanners.map(banner => (
+                                <span
+                                  key={banner.id}
+                                  className="text-[10px] px-2 py-0.5 rounded-md font-medium flex items-center gap-1 text-white shadow-xs"
+                                  style={{ backgroundColor: banner.color }}
+                                  title={`Linked to banner: ${banner.name}`}
+                                >
+                                  <Bookmark className="w-2.5 h-2.5" />
+                                  {banner.name}
+                                </span>
+                              ))}
 
                               {/* Recurrence & Due Date badges */}
                               {tx.recurrence && tx.recurrence !== 'none' && (
@@ -1091,8 +1482,10 @@ export const App: React.FC = () => {
         onSave={handleSaveTransaction}
         modes={dataState.paymentModes}
         categories={dataState.categories}
+        banners={dataState.banners}
         initialTransaction={editingTx}
         onManageCategories={() => setIsCategoriesModalOpen(true)}
+        onManageBanners={() => setIsBannersModalOpen(true)}
       />
 
       <PaymentModesModal
@@ -1109,6 +1502,15 @@ export const App: React.FC = () => {
         transactions={dataState.transactions}
         onSaveCategories={handleSaveCategories}
         onRenameCategory={handleRenameCategory}
+      />
+
+      <BannersModal
+        isOpen={isBannersModalOpen}
+        onClose={() => setIsBannersModalOpen(false)}
+        banners={dataState.banners || []}
+        transactions={dataState.transactions}
+        onSaveBanners={handleSaveBanners}
+        onDeleteBanner={handleDeleteBanner}
       />
 
       <ImportExportModal
