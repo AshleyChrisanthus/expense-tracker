@@ -22,7 +22,8 @@ import {
   Repeat,
   Bell,
   Check,
-  Clock
+  Clock,
+  Tag
 } from 'lucide-react';
 
 import { ThemeMode } from './types/theme';
@@ -32,6 +33,7 @@ import { Transaction, PaymentMode, ExpenseDataState } from './types/expense';
 import { loadExpenseData, saveExpenseData } from './utils/storage';
 import { TransactionModal } from './components/TransactionModal';
 import { PaymentModesModal } from './components/PaymentModesModal';
+import { CategoriesModal } from './components/CategoriesModal';
 import { ImportExportModal } from './components/ImportExportModal';
 import { db } from './db';
 import { 
@@ -55,6 +57,7 @@ export const App: React.FC = () => {
   const [isTxModalOpen, setIsTxModalOpen] = useState(false);
   const [editingTx, setEditingTx] = useState<Transaction | null>(null);
   const [isModesModalOpen, setIsModesModalOpen] = useState(false);
+  const [isCategoriesModalOpen, setIsCategoriesModalOpen] = useState(false);
   const [isImportExportOpen, setIsImportExportOpen] = useState(false);
 
   // Filters & Search
@@ -223,6 +226,37 @@ export const App: React.FC = () => {
       ...prev,
       paymentModes: modes
     }));
+  };
+
+  const handleSaveCategories = async (newCategories: string[]) => {
+    try {
+      await db.saveCategories(newCategories);
+    } catch (e) {
+      console.error('Dexie save categories failed:', e);
+    }
+
+    setDataState(prev => ({
+      ...prev,
+      categories: newCategories
+    }));
+  };
+
+  const handleRenameCategory = async (oldName: string, newName: string) => {
+    try {
+      await db.renameCategory(oldName, newName);
+    } catch (e) {
+      console.error('Dexie rename category failed:', e);
+    }
+
+    setDataState(prev => {
+      const updatedCategories = prev.categories.map(c => c === oldName ? newName : c);
+      const updatedTransactions = prev.transactions.map(t => t.category === oldName ? { ...t, category: newName } : t);
+      return {
+        ...prev,
+        categories: updatedCategories,
+        transactions: updatedTransactions
+      };
+    });
   };
 
   const handleUpdateDataState = async (newState: ExpenseDataState) => {
@@ -452,6 +486,15 @@ export const App: React.FC = () => {
             >
               <CreditCard className="w-4 h-4 text-[var(--accent)]" />
               <span className="hidden md:inline">Payment Modes</span>
+            </button>
+
+            <button
+              onClick={() => setIsCategoriesModalOpen(true)}
+              className="apple-btn apple-btn-secondary text-xs sm:text-sm font-medium"
+              title="Manage Categories"
+            >
+              <Tag className="w-4 h-4 text-purple-400" />
+              <span className="hidden md:inline">Categories</span>
             </button>
 
             <button
@@ -1049,6 +1092,7 @@ export const App: React.FC = () => {
         modes={dataState.paymentModes}
         categories={dataState.categories}
         initialTransaction={editingTx}
+        onManageCategories={() => setIsCategoriesModalOpen(true)}
       />
 
       <PaymentModesModal
@@ -1056,6 +1100,15 @@ export const App: React.FC = () => {
         onClose={() => setIsModesModalOpen(false)}
         modes={dataState.paymentModes}
         onSaveModes={handleSavePaymentModes}
+      />
+
+      <CategoriesModal
+        isOpen={isCategoriesModalOpen}
+        onClose={() => setIsCategoriesModalOpen(false)}
+        categories={dataState.categories}
+        transactions={dataState.transactions}
+        onSaveCategories={handleSaveCategories}
+        onRenameCategory={handleRenameCategory}
       />
 
       <ImportExportModal
