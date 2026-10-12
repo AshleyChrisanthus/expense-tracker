@@ -10,9 +10,10 @@ import {
   FileText, 
   ArrowRight,
   Repeat,
-  Plus
+  Plus,
+  Bookmark
 } from 'lucide-react';
-import { Transaction, TransactionType, PaymentMode, RecurrenceRule } from '../types/expense';
+import { Transaction, TransactionType, PaymentMode, RecurrenceRule, Banner } from '../types/expense';
 import { 
   calculateInitialDueDate, 
   WEEKDAYS, 
@@ -25,8 +26,10 @@ interface TransactionModalProps {
   onSave: (transaction: Transaction) => void;
   modes: PaymentMode[];
   categories: string[];
+  banners?: Banner[];
   initialTransaction?: Transaction | null;
   onManageCategories?: () => void;
+  onManageBanners?: () => void;
 }
 
 export const TransactionModal: React.FC<TransactionModalProps> = ({
@@ -35,8 +38,10 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
   onSave,
   modes,
   categories,
+  banners = [],
   initialTransaction,
-  onManageCategories
+  onManageCategories,
+  onManageBanners
 }) => {
   const [type, setType] = useState<TransactionType>('expense');
   const [amount, setAmount] = useState('');
@@ -52,6 +57,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
   const [recurrence, setRecurrence] = useState<RecurrenceRule>('none');
   const [recurrenceDayOfWeek, setRecurrenceDayOfWeek] = useState<number>(0);
   const [recurrenceDayOfMonth, setRecurrenceDayOfMonth] = useState<number>(1);
+  const [selectedBannerIds, setSelectedBannerIds] = useState<string[]>([]);
 
   useEffect(() => {
     if (initialTransaction) {
@@ -61,6 +67,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
       setPaymentModeId(initialTransaction.paymentModeId);
       setToPaymentModeId(initialTransaction.toPaymentModeId || modes[0]?.id || 'bank');
       setFee(initialTransaction.fee ? initialTransaction.fee.toString() : '');
+      setSelectedBannerIds(initialTransaction.bannerIds || []);
       if (categories.includes(initialTransaction.category)) {
         setCategory(initialTransaction.category);
         setCustomCategory('');
@@ -105,6 +112,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
       setNotes('');
       setStatus('completed');
       setRecurrence('none');
+      setSelectedBannerIds([]);
       
       const now = new Date();
       setRecurrenceDayOfWeek(now.getDay());
@@ -124,6 +132,12 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
         setRecurrenceDayOfMonth(parts[2]);
       }
     }
+  };
+
+  const toggleBanner = (bannerId: string) => {
+    setSelectedBannerIds(prev => 
+      prev.includes(bannerId) ? prev.filter(id => id !== bannerId) : [...prev, bannerId]
+    );
   };
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -163,6 +177,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
       recurrenceDayOfWeek: isWeekCycle ? recurrenceDayOfWeek : undefined,
       recurrenceDayOfMonth: isMonthCycle ? recurrenceDayOfMonth : undefined,
       nextDueDate,
+      bannerIds: selectedBannerIds.length > 0 ? selectedBannerIds : undefined,
       createdAt: initialTransaction ? initialTransaction.createdAt : Date.now()
     };
 
@@ -520,6 +535,65 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
               </p>
             </div>
           )}
+
+          {/* Banners / Groups Selector */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-medium text-[var(--text-secondary)] flex items-center gap-1.5">
+                <Bookmark className="w-3.5 h-3.5 text-purple-400" />
+                Banners / Groups (Optional)
+              </label>
+              {onManageBanners && (
+                <button
+                  type="button"
+                  onClick={onManageBanners}
+                  className="text-[11px] text-[var(--accent)] hover:underline flex items-center gap-1"
+                >
+                  <Plus className="w-3 h-3" /> Manage Banners
+                </button>
+              )}
+            </div>
+
+            {banners.length > 0 ? (
+              <div className="flex items-center gap-1.5 flex-wrap p-2 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-light)]">
+                {banners.map(b => {
+                  const isSelected = selectedBannerIds.includes(b.id);
+                  return (
+                    <button
+                      key={b.id}
+                      type="button"
+                      onClick={() => toggleBanner(b.id)}
+                      className={`text-xs px-2.5 py-1 rounded-lg font-medium transition-all flex items-center gap-1.5 ${
+                        isSelected
+                          ? 'text-white shadow-sm ring-1 ring-white/30'
+                          : 'border border-[var(--border-light)] bg-[var(--bg-primary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                      }`}
+                      style={isSelected ? { backgroundColor: b.color } : {}}
+                    >
+                      <span 
+                        className={`w-2 h-2 rounded-full inline-block ${isSelected ? 'bg-white' : ''}`}
+                        style={!isSelected ? { backgroundColor: b.color } : {}}
+                      />
+                      <span>{b.name}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="p-2.5 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-light)] text-[11px] text-[var(--text-secondary)] flex items-center justify-between">
+                <span>No banners created yet.</span>
+                {onManageBanners && (
+                  <button
+                    type="button"
+                    onClick={onManageBanners}
+                    className="text-[var(--accent)] hover:underline font-medium"
+                  >
+                    + Create Banner
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
 
           {/* Notes */}
           <div>

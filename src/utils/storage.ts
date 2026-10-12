@@ -1,6 +1,12 @@
-import { PaymentMode, Transaction, ExpenseDataState } from '../types/expense';
+import { PaymentMode, Transaction, ExpenseDataState, Banner } from '../types/expense';
 
 const STORAGE_KEY = 'expense_tracker_state_v2';
+
+export const DEFAULT_BANNERS: Banner[] = [
+  { id: 'banner-gardiner', name: 'Room Rent in Gardiner', color: '#8b5cf6', createdAt: 1704067200000 },
+  { id: 'banner-essendon', name: 'Essendon', color: '#0ea5e9', createdAt: 1704067201000 },
+  { id: 'banner-stalbans', name: 'St Albans', color: '#f59e0b', createdAt: 1704067202000 },
+];
 
 export const DEFAULT_PAYMENT_MODES: PaymentMode[] = [
   {
@@ -9184,7 +9190,8 @@ export function loadExpenseData(): ExpenseDataState {
     version: 2,
     paymentModes: DEFAULT_PAYMENT_MODES,
     transactions: INITIAL_TRANSACTIONS,
-    categories: DEFAULT_CATEGORIES
+    categories: DEFAULT_CATEGORIES,
+    banners: DEFAULT_BANNERS
   };
   saveExpenseData(defaultState);
   return defaultState;

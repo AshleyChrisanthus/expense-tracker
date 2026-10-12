@@ -1,5 +1,5 @@
 import Dexie, { type Table } from 'dexie';
-import { Transaction, PaymentMode, ExpenseDataState } from '../types/expense';
+import { Transaction, PaymentMode, ExpenseDataState, Banner } from '../types/expense';
 import { 
   DEFAULT_PAYMENT_MODES, 
   DEFAULT_CATEGORIES, 
@@ -16,10 +16,17 @@ export interface CategoryItem {
   name: string;
 }
 
+export const DEFAULT_BANNERS: Banner[] = [
+  { id: 'banner-gardiner', name: 'Room Rent in Gardiner', color: '#8b5cf6', createdAt: 1704067200000 },
+  { id: 'banner-essendon', name: 'Essendon', color: '#0ea5e9', createdAt: 1704067201000 },
+  { id: 'banner-stalbans', name: 'St Albans', color: '#f59e0b', createdAt: 1704067202000 },
+];
+
 export class ExpenseDB extends Dexie {
   transactions!: Table<Transaction, string>;
   paymentModes!: Table<PaymentMode, string>;
   categories!: Table<CategoryItem, string>;
+  banners!: Table<Banner, string>;
   settings!: Table<SettingItem, string>;
 
   constructor() {
@@ -30,6 +37,13 @@ export class ExpenseDB extends Dexie {
       categories: 'id, name',
       settings: 'key'
     });
+    this.version(2).stores({
+      transactions: 'id, date, type, paymentModeId, toPaymentModeId, category, status, createdAt, *bannerIds',
+      paymentModes: 'id, name, isSystem',
+      categories: 'id, name',
+      banners: 'id, name, color, createdAt',
+      settings: 'key'
+    });
   }
 
   // Prepopulate with Google Sheet + Keep seed data (v2) or upgrade
@@ -37,20 +51,24 @@ export class ExpenseDB extends Dexie {
     transactions: Transaction[];
     paymentModes: PaymentMode[];
     categories: string[];
+    banners: Banner[];
   }> {
     const txCount = await this.transactions.count();
     const modeCount = await this.paymentModes.count();
+    const bannerCount = await this.banners.count();
     const dataVer = localStorage.getItem('expense_data_version');
 
     if (txCount === 0 || modeCount === 0 || dataVer !== 'v2' || txCount < 50) {
-      await this.transaction('rw', this.transactions, this.paymentModes, this.categories, async () => {
+      await this.transaction('rw', this.transactions, this.paymentModes, this.categories, this.banners, async () => {
         await this.transactions.clear();
         await this.paymentModes.clear();
         await this.categories.clear();
+        await this.banners.clear();
 
         await this.paymentModes.bulkPut(DEFAULT_PAYMENT_MODES);
         await this.transactions.bulkPut(INITIAL_TRANSACTIONS);
         await this.categories.bulkPut(DEFAULT_CATEGORIES.map(c => ({ id: c, name: c })));
+        await this.banners.bulkPut(DEFAULT_BANNERS);
       });
 
       localStorage.setItem('expense_data_version', 'v2');
@@ -58,19 +76,25 @@ export class ExpenseDB extends Dexie {
         version: 2,
         paymentModes: DEFAULT_PAYMENT_MODES,
         transactions: INITIAL_TRANSACTIONS,
-        categories: DEFAULT_CATEGORIES
+        categories: DEFAULT_CATEGORIES,
+        banners: DEFAULT_BANNERS
       }));
+    } else if (bannerCount === 0) {
+      // Seed default banners if upgrading from v1
+      await this.banners.bulkPut(DEFAULT_BANNERS);
     }
 
     const transactions = await this.transactions.orderBy('date').reverse().toArray();
     const paymentModes = await this.paymentModes.toArray();
     const catItems = await this.categories.toArray();
     const categories = catItems.length > 0 ? catItems.map(c => c.name) : DEFAULT_CATEGORIES;
+    const banners = await this.banners.toArray();
 
     return {
       transactions,
       paymentModes,
-      categories
+      categories,
+      banners: banners.length > 0 ? banners : DEFAULT_BANNERS
     };
   }
 
@@ -78,11 +102,13 @@ export class ExpenseDB extends Dexie {
     const transactions = await this.transactions.orderBy('date').reverse().toArray();
     const paymentModes = await this.paymentModes.toArray();
     const catItems = await this.categories.toArray();
+    const banners = await this.banners.toArray();
     return {
       version: 1,
       transactions,
       paymentModes,
-      categories: catItems.map(c => c.name)
+      categories: catItems.map(c => c.name),
+      banners: banners.length > 0 ? banners : DEFAULT_BANNERS
     };
   }
 
@@ -96,6 +122,31 @@ export class ExpenseDB extends Dexie {
 
   async deleteTransaction(id: string): Promise<void> {
     await this.transactions.delete(id);
+  }
+
+  async saveBanners(banners: Banner[]): Promise<void> {
+    await this.transaction('rw', this.banners, async () => {
+      await this.banners.clear();
+      await this.banners.bulkPut(banners);
+    });
+  }
+
+  async putBanner(banner: Banner): Promise<void> {
+    await this.banners.put(banner);
+  }
+
+  async deleteBanner(bannerId: string): Promise<void> {
+    await this.transaction('rw', this.banners, this.transactions, async () => {
+      await this.banners.delete(bannerId);
+      // Remove bannerId from all transactions
+      const txs = await this.transactions.toArray();
+      for (const tx of txs) {
+        if (tx.bannerIds && tx.bannerIds.includes(bannerId)) {
+          tx.bannerIds = tx.bannerIds.filter(id => id !== bannerId);
+          await this.transactions.put(tx);
+        }
+      }
+    });
   }
 
   async savePaymentModes(modes: PaymentMode[]): Promise<void> {
@@ -129,21 +180,24 @@ export class ExpenseDB extends Dexie {
   }
 
   async resetToSampleData(): Promise<ExpenseDataState> {
-    await this.transaction('rw', this.transactions, this.paymentModes, this.categories, async () => {
+    await this.transaction('rw', this.transactions, this.paymentModes, this.categories, this.banners, async () => {
       await this.transactions.clear();
       await this.paymentModes.clear();
       await this.categories.clear();
+      await this.banners.clear();
 
       await this.paymentModes.bulkPut(DEFAULT_PAYMENT_MODES);
       await this.transactions.bulkPut(INITIAL_TRANSACTIONS);
       await this.categories.bulkPut(DEFAULT_CATEGORIES.map(c => ({ id: c, name: c })));
+      await this.banners.bulkPut(DEFAULT_BANNERS);
     });
 
     return {
       version: 1,
       paymentModes: DEFAULT_PAYMENT_MODES,
       transactions: INITIAL_TRANSACTIONS,
-      categories: DEFAULT_CATEGORIES
+      categories: DEFAULT_CATEGORIES,
+      banners: DEFAULT_BANNERS
     };
   }
 
@@ -152,23 +206,27 @@ export class ExpenseDB extends Dexie {
   }
 
   async importData(data: ExpenseDataState, mode: 'merge' | 'replace'): Promise<ExpenseDataState> {
+    const bannersToImport = data.banners || DEFAULT_BANNERS;
     if (mode === 'replace') {
-      await this.transaction('rw', this.transactions, this.paymentModes, this.categories, async () => {
+      await this.transaction('rw', this.transactions, this.paymentModes, this.categories, this.banners, async () => {
         await this.transactions.clear();
         await this.paymentModes.clear();
         await this.categories.clear();
+        await this.banners.clear();
 
         await this.paymentModes.bulkPut(data.paymentModes);
         await this.transactions.bulkPut(data.transactions);
         await this.categories.bulkPut(data.categories.map(c => ({ id: c, name: c })));
+        await this.banners.bulkPut(bannersToImport);
       });
       return data;
     } else {
       // Merge
-      await this.transaction('rw', this.transactions, this.paymentModes, this.categories, async () => {
+      await this.transaction('rw', this.transactions, this.paymentModes, this.categories, this.banners, async () => {
         await this.transactions.bulkPut(data.transactions);
         await this.paymentModes.bulkPut(data.paymentModes);
         await this.categories.bulkPut(data.categories.map(c => ({ id: c, name: c })));
+        await this.banners.bulkPut(bannersToImport);
       });
       return this.getAllData();
     }
