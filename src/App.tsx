@@ -18,7 +18,11 @@ import {
   Banknote, 
   Coins, 
   Smartphone, 
-  Sparkles 
+  Sparkles,
+  Repeat,
+  Bell,
+  Check,
+  Clock
 } from 'lucide-react';
 
 import { ThemeMode } from './types/theme';
@@ -30,6 +34,12 @@ import { TransactionModal } from './components/TransactionModal';
 import { PaymentModesModal } from './components/PaymentModesModal';
 import { ImportExportModal } from './components/ImportExportModal';
 import { db } from './db';
+import { 
+  getRecurrenceDueInfo, 
+  formatRecurrenceLabel, 
+  computeNextDueDate, 
+  getNextFutureDueDate 
+} from './utils/recurrence';
 
 export const App: React.FC = () => {
   // Theme state
@@ -133,6 +143,57 @@ export const App: React.FC = () => {
     }
   };
 
+  // Toast notification state
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // 1-Click Repeat transaction for today
+  const handleRepeatTransaction = async (tx: Transaction) => {
+    const today = new Date().toISOString().split('T')[0];
+    const newTx: Transaction = {
+      ...tx,
+      id: 'tx-' + Date.now(),
+      date: today,
+      status: 'completed',
+      nextDueDate: tx.recurrence && tx.recurrence !== 'none'
+        ? computeNextDueDate(today, tx.recurrence)
+        : undefined,
+      createdAt: Date.now()
+    };
+
+    await handleSaveTransaction(newTx);
+    setToastMessage(`Repeated "${tx.description}" ($${tx.amount.toFixed(2)}) for today!`);
+    setTimeout(() => setToastMessage(null), 3500);
+  };
+
+  // Log and advance a recurring expense from reminder banner
+  const handlePayRecurring = async (tx: Transaction, currentEffectiveDueDate?: string) => {
+    const today = new Date().toISOString().split('T')[0];
+    const baseDate = currentEffectiveDueDate || tx.nextDueDate || today;
+    const nextDate = computeNextDueDate(baseDate, tx.recurrence || 'weekly');
+
+    // 1. Log payment instance for today
+    const newTx: Transaction = {
+      ...tx,
+      id: 'tx-' + Date.now(),
+      date: today,
+      status: 'completed',
+      recurrence: undefined,
+      nextDueDate: undefined,
+      createdAt: Date.now()
+    };
+    await handleSaveTransaction(newTx);
+
+    // 2. Advance template transaction's nextDueDate
+    const updatedTemplate: Transaction = {
+      ...tx,
+      nextDueDate: nextDate
+    };
+    await handleSaveTransaction(updatedTemplate);
+
+    setToastMessage(`Logged "${tx.description}" ($${tx.amount.toFixed(2)}) for today! Next due: ${nextDate}`);
+    setTimeout(() => setToastMessage(null), 3500);
+  };
+
   const handleSavePaymentModes = async (modes: PaymentMode[]) => {
     try {
       await db.savePaymentModes(modes);
@@ -189,8 +250,14 @@ export const App: React.FC = () => {
       }
 
       // Type filter
-      if (selectedTypeFilter !== 'all' && tx.type !== selectedTypeFilter) {
-        return false;
+      if (selectedTypeFilter !== 'all') {
+        if (selectedTypeFilter === 'recurring') {
+          if (!tx.recurrence || tx.recurrence === 'none') {
+            return false;
+          }
+        } else if (tx.type !== selectedTypeFilter) {
+          return false;
+        }
       }
 
       // Category filter
@@ -206,6 +273,30 @@ export const App: React.FC = () => {
       return true;
     }).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime() || b.createdAt - a.createdAt);
   }, [dataState.transactions, searchQuery, selectedModeFilter, selectedTypeFilter, selectedCategoryFilter, selectedMonthFilter]);
+
+  // Upcoming recurring expenses for notifications & reminders
+  const upcomingRecurring = useMemo(() => {
+    const recurringMap = new Map<string, Transaction>();
+    dataState.transactions.forEach(t => {
+      if (t.recurrence && t.recurrence !== 'none' && t.status !== 'cancelled') {
+        const key = t.description.trim().toLowerCase();
+        const existing = recurringMap.get(key);
+        if (!existing || t.date > existing.date) {
+          recurringMap.set(key, t);
+        }
+      }
+    });
+
+    return Array.from(recurringMap.values()).map(item => {
+      const effectiveDueDate = item.nextDueDate || getNextFutureDueDate(item.date, item.recurrence!);
+      const dueInfo = getRecurrenceDueInfo(effectiveDueDate);
+      return {
+        item,
+        effectiveDueDate,
+        dueInfo
+      };
+    }).sort((a, b) => a.effectiveDueDate.localeCompare(b.effectiveDueDate));
+  }, [dataState.transactions]);
 
   // Group transactions by Date (like Google Keep notes format)
   const groupedTransactions = useMemo(() => {
@@ -229,10 +320,14 @@ export const App: React.FC = () => {
         displayDate = dObj.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
       }
 
-      // Day total only calculates completed expenses
+      // Day total calculates completed expenses and transfer fees
       const dayTotal = items.reduce((acc, curr) => {
-        if (curr.type === 'expense' && curr.status !== 'cancelled') {
+        if (curr.status === 'cancelled') return acc;
+        if (curr.type === 'expense') {
           return acc + curr.amount;
+        }
+        if (curr.type === 'transfer' && curr.fee) {
+          return acc + curr.fee;
         }
         return acc;
       }, 0);
@@ -272,7 +367,13 @@ export const App: React.FC = () => {
         totalIncome += t.amount;
       } else if (t.type === 'transfer') {
         totalTransfers += t.amount;
-        if (t.fee) transferFees += t.fee;
+        if (t.fee) {
+          transferFees += t.fee;
+          totalExpense += t.fee;
+          if (modeSpending[t.paymentModeId] !== undefined) {
+            modeSpending[t.paymentModeId] += t.fee;
+          }
+        }
       }
     });
 
@@ -509,6 +610,7 @@ export const App: React.FC = () => {
                 <option value="expense">Expenses Only</option>
                 <option value="transfer">Transfers Only</option>
                 <option value="income">Income / Deposits Only</option>
+                <option value="recurring">Recurring Expenses Only</option>
               </select>
             </div>
 
@@ -556,9 +658,14 @@ export const App: React.FC = () => {
           </div>
 
           {/* Active Filter Tags */}
-          {(selectedModeFilter !== 'all' || selectedCategoryFilter !== 'all' || selectedMonthFilter !== 'all' || searchQuery.trim()) && (
+          {(selectedTypeFilter !== 'all' || selectedModeFilter !== 'all' || selectedCategoryFilter !== 'all' || selectedMonthFilter !== 'all' || searchQuery.trim()) && (
             <div className="flex items-center gap-2 pt-1 border-t border-[var(--border-light)] text-xs text-[var(--text-secondary)] flex-wrap">
               <span>Active filters:</span>
+              {selectedTypeFilter !== 'all' && (
+                <span className="px-2 py-0.5 rounded-full bg-[var(--accent-bg)] text-[var(--accent)] font-medium">
+                  Type: {selectedTypeFilter === 'recurring' ? 'Recurring' : selectedTypeFilter}
+                </span>
+              )}
               {selectedModeFilter !== 'all' && (
                 <span className="px-2 py-0.5 rounded-full bg-[var(--accent-bg)] text-[var(--accent)] font-medium">
                   Mode: {dataState.paymentModes.find(m => m.id === selectedModeFilter)?.name}
@@ -581,6 +688,7 @@ export const App: React.FC = () => {
               )}
               <button
                 onClick={() => {
+                  setSelectedTypeFilter('all');
                   setSelectedModeFilter('all');
                   setSelectedCategoryFilter('all');
                   setSelectedMonthFilter('all');
@@ -593,6 +701,79 @@ export const App: React.FC = () => {
             </div>
           )}
         </section>
+
+        {/* Recurring Expense Due Reminders Banner */}
+        {upcomingRecurring.length > 0 && (
+          <section className="apple-card p-4 border-l-4 border-l-purple-500 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 rounded-lg bg-purple-500/15 text-purple-400">
+                  <Bell className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-semibold text-[var(--text-primary)] flex items-center gap-2">
+                    Recurring Reminders & Due Dates
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-500/15 text-purple-400 font-medium font-mono">
+                      {upcomingRecurring.length}
+                    </span>
+                  </h3>
+                  <p className="text-xs text-[var(--text-secondary)]">
+                    Upcoming scheduled bills, rent, and subscriptions
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5 pt-1">
+              {upcomingRecurring.map(({ item, effectiveDueDate, dueInfo }) => {
+                return (
+                  <div 
+                    key={item.id}
+                    className="p-3 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-light)] flex items-center justify-between gap-3 hover:border-purple-500/30 transition-all"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5 mb-1">
+                        <span className="text-xs font-semibold text-[var(--text-primary)] truncate">
+                          {item.description}
+                        </span>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/15 text-purple-400 font-medium shrink-0">
+                          {formatRecurrenceLabel(item.recurrence)}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2 text-xs">
+                        <span className="font-mono font-bold text-rose-400">
+                          ${item.amount.toFixed(2)}
+                        </span>
+                        {dueInfo?.isDueToday ? (
+                          <span className="text-[10px] text-amber-400 font-medium flex items-center gap-0.5">
+                            <Bell className="w-2.5 h-2.5" /> Due Today
+                          </span>
+                        ) : dueInfo?.isOverdue ? (
+                          <span className="text-[10px] text-rose-400 font-medium flex items-center gap-0.5">
+                            <Clock className="w-2.5 h-2.5" /> Overdue ({Math.abs(dueInfo.diffDays)}d)
+                          </span>
+                        ) : (
+                          <span className="text-[10px] text-[var(--text-secondary)] flex items-center gap-0.5">
+                            <Clock className="w-2.5 h-2.5" /> In {dueInfo?.diffDays}d ({dueInfo?.formattedDueDate})
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={() => handlePayRecurring(item, effectiveDueDate)}
+                      className="apple-btn apple-btn-primary text-xs py-1 px-2.5 shrink-0 flex items-center gap-1"
+                      title="Log payment for today and advance due date"
+                    >
+                      <Check className="w-3.5 h-3.5" />
+                      <span>Log Today</span>
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+        )}
 
         {/* Transactions List Grouped by Date (Google Keep style) */}
         <section className="space-y-6">
@@ -711,6 +892,45 @@ export const App: React.FC = () => {
                                 {tx.category}
                               </span>
 
+                              {/* Recurrence & Due Date badges */}
+                              {tx.recurrence && tx.recurrence !== 'none' && (
+                                <span className="text-[10px] px-2 py-0.5 rounded-md bg-purple-500/10 text-purple-400 border border-purple-500/20 font-medium flex items-center gap-1">
+                                  <Repeat className="w-2.5 h-2.5" />
+                                  {formatRecurrenceLabel(tx.recurrence)}
+                                </span>
+                              )}
+
+                              {tx.recurrence && tx.recurrence !== 'none' && (() => {
+                                const dueInfo = getRecurrenceDueInfo(tx.nextDueDate);
+                                if (!dueInfo) return null;
+                                if (dueInfo.isOverdue) {
+                                  return (
+                                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-rose-500/15 text-rose-400 border border-rose-500/30 font-medium flex items-center gap-1">
+                                      <Clock className="w-2.5 h-2.5" /> Overdue ({Math.abs(dueInfo.diffDays)}d)
+                                    </span>
+                                  );
+                                }
+                                if (dueInfo.isDueToday) {
+                                  return (
+                                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/30 font-medium flex items-center gap-1">
+                                      <Bell className="w-2.5 h-2.5" /> Due Today
+                                    </span>
+                                  );
+                                }
+                                if (dueInfo.isDueSoon) {
+                                  return (
+                                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-medium flex items-center gap-1">
+                                      <Clock className="w-2.5 h-2.5" /> In {dueInfo.diffDays}d
+                                    </span>
+                                  );
+                                }
+                                return (
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--bg-secondary)] text-[var(--text-secondary)] border border-[var(--border-light)] font-medium">
+                                    Next: {dueInfo.formattedDueDate}
+                                  </span>
+                                );
+                              })()}
+
                               {/* Cancelled badge */}
                               {isCancelled && (
                                 <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 font-medium">
@@ -719,23 +939,18 @@ export const App: React.FC = () => {
                               )}
                             </div>
 
-                            {/* Additional notes & transfer fees */}
-                            <div className="flex items-center gap-3 text-xs text-[var(--text-secondary)] flex-wrap">
-                              {tx.notes && (
+                            {/* Additional notes */}
+                            {tx.notes && !/^\+?[\d.]+\$?\s*(transfer\s*)?(fee|charge)$/i.test(tx.notes.trim()) && (
+                              <div className="flex items-center gap-3 text-xs text-[var(--text-secondary)] flex-wrap">
                                 <span className="italic">Note: "{tx.notes}"</span>
-                              )}
-                              {tx.fee !== undefined && tx.fee > 0 && (
-                                <span className="text-purple-400 font-mono font-medium">
-                                  (+${tx.fee.toFixed(2)} transfer fee)
-                                </span>
-                              )}
-                            </div>
+                              </div>
+                            )}
                           </div>
                         </div>
 
                         {/* Right: Amount and Action Buttons */}
                         <div className="flex items-center justify-between sm:justify-end gap-4 shrink-0 pl-11 sm:pl-0">
-                          <div className="text-right">
+                          <div className="text-right flex flex-col items-end">
                             <span 
                               className={`text-base sm:text-lg font-bold font-mono ${
                                 isCancelled 
@@ -749,9 +964,25 @@ export const App: React.FC = () => {
                             >
                               {tx.type === 'income' ? '+' : tx.type === 'expense' ? '-' : ''}${tx.amount.toFixed(2)}
                             </span>
+                            {tx.type === 'transfer' && tx.fee !== undefined && tx.fee > 0 && (
+                              <span 
+                                className={`text-xs font-semibold font-mono text-rose-400 ${
+                                  isCancelled ? 'line-through opacity-60' : ''
+                                }`}
+                              >
+                                -${tx.fee.toFixed(2)} fee
+                              </span>
+                            )}
                           </div>
 
                           <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => handleRepeatTransaction(tx)}
+                              className="p-1.5 rounded-lg hover:bg-purple-500/10 text-[var(--text-secondary)] hover:text-purple-400 transition-colors"
+                              title="Repeat this expense for today"
+                            >
+                              <Repeat className="w-4 h-4" />
+                            </button>
                             <button
                               onClick={() => { setEditingTx(tx); setIsTxModalOpen(true); }}
                               className="p-1.5 rounded-lg hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
@@ -808,6 +1039,14 @@ export const App: React.FC = () => {
         currentState={dataState}
         onUpdateState={handleUpdateDataState}
       />
+
+      {/* Toast Notification */}
+      {toastMessage && (
+        <div className="fixed bottom-6 right-6 z-50 px-4 py-3 rounded-xl glass-panel border border-emerald-500/40 text-xs font-semibold text-emerald-400 flex items-center gap-2 shadow-2xl backdrop-blur-md">
+          <Check className="w-4 h-4 shrink-0" />
+          <span>{toastMessage}</span>
+        </div>
+      )}
     </div>
   );
 };

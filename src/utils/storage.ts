@@ -130,7 +130,6 @@ export function parseGoogleKeepText(text: string, currentModes: PaymentMode[]): 
         fee,
         category: 'Transfers',
         description: line,
-        notes: fee > 0 ? `+${fee}$ fee` : undefined,
         status: 'completed',
         createdAt: Date.now()
       });
