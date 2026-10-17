@@ -1108,60 +1108,62 @@ export const App: React.FC = () => {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5 pt-1">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 pt-1">
               {upcomingRecurring.map(({ item, effectiveDueDate, dueInfo }) => {
                 return (
                   <div 
                     key={item.id}
-                    className="p-3 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-light)] flex items-center justify-between gap-3 hover:border-purple-500/30 transition-all"
+                    className="p-3.5 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-light)] flex flex-col justify-between gap-3 hover:border-purple-500/30 transition-all shadow-sm"
                   >
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-1.5 mb-1">
-                        <span className="text-xs font-semibold text-[var(--text-primary)] truncate">
-                          {item.description}
-                        </span>
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/15 text-purple-400 font-medium shrink-0">
-                          {formatRecurrenceLabel(item.recurrence, item.recurrenceDayOfWeek, item.recurrenceDayOfMonth)}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2 text-xs">
-                        <span className="font-mono font-bold text-rose-400">
-                          ${item.amount.toFixed(2)}
-                        </span>
-                        {dueInfo?.isDueToday ? (
-                          <span className="text-[10px] text-amber-400 font-medium flex items-center gap-0.5">
-                            <Bell className="w-2.5 h-2.5" /> Due Today
-                          </span>
-                        ) : dueInfo?.isOverdue ? (
-                          <span className="text-[10px] text-rose-400 font-medium flex items-center gap-0.5">
-                            <Clock className="w-2.5 h-2.5" /> Overdue ({Math.abs(dueInfo.diffDays)}d)
-                          </span>
-                        ) : (
-                          <span className="text-[10px] text-[var(--text-secondary)] flex items-center gap-0.5">
-                            <Clock className="w-2.5 h-2.5" /> In {dueInfo?.diffDays}d ({dueInfo?.formattedDueDate})
-                          </span>
-                        )}
-                      </div>
+                    {/* Header: Description & Recurrence badge */}
+                    <div className="flex items-start justify-between gap-2 min-w-0">
+                      <span className="text-xs font-semibold text-[var(--text-primary)] truncate" title={item.description}>
+                        {item.description}
+                      </span>
+                      <span className="text-[10px] px-2 py-0.5 rounded bg-purple-500/15 text-purple-400 font-medium shrink-0">
+                        {formatRecurrenceLabel(item.recurrence, item.recurrenceDayOfWeek, item.recurrenceDayOfMonth)}
+                      </span>
                     </div>
 
-                    <div className="flex flex-col sm:flex-row items-end sm:items-center gap-1.5 shrink-0">
+                    {/* Middle: Amount & Due status */}
+                    <div className="flex items-baseline justify-between gap-2">
+                      <span className="font-mono font-bold text-sm text-rose-400">
+                        ${item.amount.toFixed(2)}
+                      </span>
+                      {dueInfo?.isDueToday ? (
+                        <span className="text-[11px] text-amber-400 font-medium flex items-center gap-1 shrink-0">
+                          <Bell className="w-3 h-3" /> Due Today
+                        </span>
+                      ) : dueInfo?.isOverdue ? (
+                        <span className="text-[11px] text-rose-400 font-medium flex items-center gap-1 shrink-0">
+                          <Clock className="w-3 h-3" /> Overdue ({Math.abs(dueInfo.diffDays)}d) · {dueInfo?.formattedDueDate}
+                        </span>
+                      ) : (
+                        <span className="text-[11px] text-[var(--text-secondary)] flex items-center gap-1 shrink-0">
+                          <Clock className="w-3 h-3" /> In {dueInfo?.diffDays}d · {dueInfo?.formattedDueDate}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Footer: Action Buttons */}
+                    <div className="pt-2 border-t border-[var(--border-light)] flex items-center gap-2">
                       {!dueInfo?.isDueToday && (
                         <button
                           onClick={() => handlePayRecurring(item, effectiveDueDate, 'due')}
-                          className="apple-btn apple-btn-secondary text-xs py-1 px-2.5 flex items-center gap-1 hover:border-purple-500/40"
+                          className="apple-btn apple-btn-secondary text-xs py-1.5 px-2 flex-1 flex items-center justify-center gap-1 hover:border-purple-500/40 transition-colors"
                           title={`Log payment on scheduled due date (${dueInfo?.formattedDueDate || effectiveDueDate}) and advance due date`}
                         >
-                          <Calendar className="w-3.5 h-3.5 text-purple-400" />
-                          <span>Log on Due Date</span>
+                          <Calendar className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+                          <span className="truncate">Log on Due Date</span>
                         </button>
                       )}
                       <button
                         onClick={() => handlePayRecurring(item, effectiveDueDate, 'today')}
-                        className="apple-btn apple-btn-primary text-xs py-1 px-2.5 flex items-center gap-1"
+                        className="apple-btn apple-btn-primary text-xs py-1.5 px-2 flex-1 flex items-center justify-center gap-1 transition-colors"
                         title="Log payment for today and advance due date"
                       >
-                        <Check className="w-3.5 h-3.5" />
-                        <span>Log Today</span>
+                        <Check className="w-3.5 h-3.5 shrink-0" />
+                        <span className="truncate">Log Today</span>
                       </button>
                     </div>
                   </div>
