@@ -196,7 +196,11 @@ export const App: React.FC = () => {
   };
 
   // Log and advance a recurring expense from reminder banner
-  const handlePayRecurring = async (tx: Transaction, currentEffectiveDueDate?: string) => {
+  const handlePayRecurring = async (
+    tx: Transaction, 
+    currentEffectiveDueDate?: string, 
+    logDateMode: 'today' | 'due' = 'today'
+  ) => {
     const today = new Date().toISOString().split('T')[0];
     const baseDate = currentEffectiveDueDate || tx.nextDueDate || today;
     const isWeek = tx.recurrence === 'weekly' || tx.recurrence === 'biweekly';
@@ -209,11 +213,13 @@ export const App: React.FC = () => {
       isMonth ? tx.recurrenceDayOfMonth : undefined
     );
 
-    // 1. Log payment instance for today
+    const targetDate = logDateMode === 'due' ? baseDate : today;
+
+    // 1. Log payment instance for targetDate
     const newTx: Transaction = {
       ...tx,
       id: 'tx-' + Date.now(),
-      date: today,
+      date: targetDate,
       status: 'completed',
       recurrence: undefined,
       recurrenceDayOfWeek: undefined,
@@ -230,7 +236,8 @@ export const App: React.FC = () => {
     };
     await handleSaveTransaction(updatedTemplate);
 
-    setToastMessage(`Logged "${tx.description}" ($${tx.amount.toFixed(2)}) for today! Next due: ${nextDate}`);
+    const dateNotice = targetDate === today ? 'today' : `due date (${targetDate})`;
+    setToastMessage(`Logged "${tx.description}" ($${tx.amount.toFixed(2)}) for ${dateNotice}! Next due: ${nextDate}`);
     setTimeout(() => setToastMessage(null), 3500);
   };
 
@@ -1137,14 +1144,26 @@ export const App: React.FC = () => {
                       </div>
                     </div>
 
-                    <button
-                      onClick={() => handlePayRecurring(item, effectiveDueDate)}
-                      className="apple-btn apple-btn-primary text-xs py-1 px-2.5 shrink-0 flex items-center gap-1"
-                      title="Log payment for today and advance due date"
-                    >
-                      <Check className="w-3.5 h-3.5" />
-                      <span>Log Today</span>
-                    </button>
+                    <div className="flex flex-col sm:flex-row items-end sm:items-center gap-1.5 shrink-0">
+                      {!dueInfo?.isDueToday && (
+                        <button
+                          onClick={() => handlePayRecurring(item, effectiveDueDate, 'due')}
+                          className="apple-btn apple-btn-secondary text-xs py-1 px-2.5 flex items-center gap-1 hover:border-purple-500/40"
+                          title={`Log payment on scheduled due date (${dueInfo?.formattedDueDate || effectiveDueDate}) and advance due date`}
+                        >
+                          <Calendar className="w-3.5 h-3.5 text-purple-400" />
+                          <span>Log on Due Date</span>
+                        </button>
+                      )}
+                      <button
+                        onClick={() => handlePayRecurring(item, effectiveDueDate, 'today')}
+                        className="apple-btn apple-btn-primary text-xs py-1 px-2.5 flex items-center gap-1"
+                        title="Log payment for today and advance due date"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                        <span>Log Today</span>
+                      </button>
+                    </div>
                   </div>
                 );
               })}
