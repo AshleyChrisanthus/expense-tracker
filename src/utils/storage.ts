@@ -63,13 +63,8 @@ export function loadExpenseData(): ExpenseDataState {
     if (raw) {
       const parsed = JSON.parse(raw);
       if (parsed && Array.isArray(parsed.transactions) && Array.isArray(parsed.paymentModes)) {
-        // Filter out any legacy pre-populated items
-        const cleanTxs = parsed.transactions.filter(
-          (t: Transaction) => !t.id || (!t.id.startsWith('sheet-') && !/^tx-\d+$/.test(t.id) && !t.date?.startsWith('2024-'))
-        );
-        parsed.transactions = cleanTxs;
         const modified = ensureDefaultRecurringTemplates(parsed.transactions);
-        if (modified.length > 0 || cleanTxs.length !== parsed.transactions.length) {
+        if (modified.length > 0) {
           saveExpenseData(parsed);
         }
         return parsed;
