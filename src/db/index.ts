@@ -54,6 +54,24 @@ export class ExpenseDB extends Dexie {
     categories: string[];
     banners: Banner[];
   }> {
+    // Purge legacy hardcoded seed data if still lingering in client IndexedDB
+    try {
+      if (typeof localStorage !== 'undefined' && localStorage.getItem('expense_tracker_legacy_purged_v3') !== 'true') {
+        const allTxs = await this.transactions.toArray();
+        const legacyIds = allTxs.filter(t => t.id && t.id.startsWith('sheet-')).map(t => t.id);
+        if (legacyIds.length > 0) {
+          await this.transactions.bulkDelete(legacyIds);
+        }
+        const legacyBannerIds = ['banner-gardiner', 'banner-essendon', 'banner-stalbans'];
+        await this.banners.bulkDelete(legacyBannerIds);
+        const curBanners = await this.banners.count();
+        if (curBanners === 0) {
+          await this.banners.bulkPut(DEFAULT_BANNERS);
+        }
+        localStorage.setItem('expense_tracker_legacy_purged_v3', 'true');
+      }
+    } catch (_) {}
+
     const txCount = await this.transactions.count();
     const modeCount = await this.paymentModes.count();
     const bannerCount = await this.banners.count();
