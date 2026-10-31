@@ -16,11 +16,12 @@ import {
   History,
   FileCheck2
 } from 'lucide-react';
-import { ExpenseDataState, PaymentMode, Transaction } from '../types/expense';
+import { ExpenseDataState, Transaction } from '../types/expense';
 import { 
   exportToJsonFile, 
   validateImportData, 
   parseGoogleKeepText,
+  mergeImportedState,
   DEFAULT_PAYMENT_MODES,
   DEFAULT_CATEGORIES
 } from '../utils/storage';
@@ -129,6 +130,10 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
     }
   };
 
+  // Merge an imported backup into the current state (transactions, modes, categories AND banners)
+  const buildMergedState = (incoming: ExpenseDataState): ExpenseDataState =>
+    mergeImportedState(currentState, incoming);
+
   const handleRestoreFromLinkedFile = async (filename: string) => {
     if (!confirm(`Restore transactions from ${filename}? Mode: ${importMode === 'replace' ? 'Replace All' : 'Merge'}`)) {
       return;
@@ -138,21 +143,9 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
       const data = await readLinkedExportFile(filename);
       if (validateImportData(data)) {
         if (importMode === 'replace') {
-          onUpdateState(data);
+          onUpdateState({ ...data, banners: data.banners || [] });
         } else {
-          // Merge
-          const existingIds = new Set(currentState.transactions.map(t => t.id));
-          const newTransactions = data.transactions.filter(t => !existingIds.has(t.id));
-          const modeMap = new Map<string, PaymentMode>();
-          currentState.paymentModes.forEach(m => modeMap.set(m.id, m));
-          data.paymentModes.forEach(m => modeMap.set(m.id, m));
-
-          onUpdateState({
-            version: 1,
-            paymentModes: Array.from(modeMap.values()),
-            transactions: [...newTransactions, ...currentState.transactions],
-            categories: Array.from(new Set([...currentState.categories, ...data.categories]))
-          });
+          onUpdateState(buildMergedState(data));
         }
         setImportStatus(`Successfully restored ${data.transactions.length} records from ${filename}!`);
       }
@@ -177,22 +170,9 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
         const parsed = JSON.parse(content);
         if (validateImportData(parsed)) {
           if (importMode === 'replace') {
-            onUpdateState(parsed);
+            onUpdateState({ ...parsed, banners: parsed.banners || [] });
           } else {
-            // Merge
-            const existingIds = new Set(currentState.transactions.map(t => t.id));
-            const newTransactions = parsed.transactions.filter(t => !existingIds.has(t.id));
-            
-            const modeMap = new Map<string, PaymentMode>();
-            currentState.paymentModes.forEach(m => modeMap.set(m.id, m));
-            parsed.paymentModes.forEach(m => modeMap.set(m.id, m));
-
-            onUpdateState({
-              version: 1,
-              paymentModes: Array.from(modeMap.values()),
-              transactions: [...newTransactions, ...currentState.transactions],
-              categories: Array.from(new Set([...currentState.categories, ...parsed.categories]))
-            });
+            onUpdateState(buildMergedState(parsed));
           }
           setImportStatus(`Successfully imported ${parsed.transactions.length} transactions!`);
         } else {
@@ -272,7 +252,8 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
         version: 1,
         paymentModes: DEFAULT_PAYMENT_MODES,
         transactions: demoTransactions,
-        categories: DEFAULT_CATEGORIES
+        categories: DEFAULT_CATEGORIES,
+        banners: currentState.banners || []
       });
       setImportStatus('Loaded generic demo transactions.');
     }

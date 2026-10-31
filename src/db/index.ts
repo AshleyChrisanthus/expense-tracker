@@ -17,11 +17,8 @@ export interface CategoryItem {
   name: string;
 }
 
-export const DEFAULT_BANNERS: Banner[] = [
-  { id: 'banner-personal', name: 'Personal', color: '#8b5cf6', createdAt: 1704067200000 },
-  { id: 'banner-work', name: 'Work', color: '#0ea5e9', createdAt: 1704067201000 },
-  { id: 'banner-vacation', name: 'Vacation', color: '#f59e0b', createdAt: 1704067202000 },
-];
+// No prepopulated banners: users create their own (or restore them from a backup)
+export const DEFAULT_BANNERS: Banner[] = [];
 
 export class ExpenseDB extends Dexie {
   transactions!: Table<Transaction, string>;

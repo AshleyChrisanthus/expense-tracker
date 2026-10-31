@@ -18,6 +18,34 @@ describe('Tier 2: Corrupted Backup & Malformed Data Handling', () => {
     assert.equal(validateImportData(true), false);
   });
 
+  it('should keep banners and their transaction links when restoring a backup in merge mode into an empty app', async () => {
+    const { mergeImportedState } = await getStorageModule();
+    const { db } = await getDbModule();
+
+    const emptyState = { version: 2, paymentModes: mockPaymentModes, transactions: [], categories: [], banners: [] };
+    const backup = {
+      version: 2,
+      paymentModes: mockPaymentModes,
+      categories: ['Rent & Housing'],
+      banners: [{ id: 'banner-home', name: 'Home', color: '#8b5cf6', createdAt: 1 }],
+      transactions: [{
+        id: 'tx-rent-1', date: '2026-10-01', amount: 300, type: 'expense', paymentModeId: 'bank',
+        category: 'Rent & Housing', description: 'Rent', bannerIds: ['banner-home'], createdAt: 2
+      }]
+    };
+
+    const merged = mergeImportedState(emptyState, backup);
+    assert.deepEqual(merged.banners.map(b => b.id), ['banner-home']);
+
+    // Persist the same way the app does (handleUpdateDataState -> importData replace)
+    const saved = await db.importData(merged, 'replace');
+    assert.deepEqual(saved.banners.map(b => b.id), ['banner-home']);
+
+    const reloaded = await db.initDatabase();
+    assert.deepEqual(reloaded.banners.map(b => b.id), ['banner-home']);
+    assert.deepEqual(reloaded.transactions[0].bannerIds, ['banner-home']);
+  });
+
   it('should reject payloads with missing or non-array transactions', async () => {
     const { validateImportData } = await getStorageModule();
 
@@ -62,8 +90,8 @@ describe('Tier 2: Corrupted Backup & Malformed Data Handling', () => {
     assert.ok(imported);
 
     const bannersInDb = await db.banners.toArray();
-    assert.ok(bannersInDb.length > 0, 'Should seed default banners when importing legacy backup');
-    assert.ok(bannersInDb.some(b => b.id === 'banner-personal'));
+    assert.ok(Array.isArray(bannersInDb), 'Legacy backups without banners should import cleanly');
+    assert.equal(bannersInDb.length, 0);
   });
 
   it('should preserve existing database if an import fails during transaction parsing', async () => {

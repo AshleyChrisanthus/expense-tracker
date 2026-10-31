@@ -2,11 +2,8 @@ import { PaymentMode, Transaction, ExpenseDataState, Banner } from '../types/exp
 
 const STORAGE_KEY = 'expense_tracker_state_v2';
 
-export const DEFAULT_BANNERS: Banner[] = [
-  { id: 'banner-personal', name: 'Personal', color: '#8b5cf6', createdAt: 1704067200000 },
-  { id: 'banner-work', name: 'Work', color: '#0ea5e9', createdAt: 1704067201000 },
-  { id: 'banner-vacation', name: 'Vacation', color: '#f59e0b', createdAt: 1704067202000 },
-];
+// No prepopulated banners: users create their own (or restore them from a backup)
+export const DEFAULT_BANNERS: Banner[] = [];
 
 export const DEFAULT_PAYMENT_MODES: PaymentMode[] = [
   {
@@ -108,6 +105,32 @@ export function validateImportData(data: any): data is ExpenseDataState {
   if (!data || typeof data !== 'object') return false;
   if (!Array.isArray(data.transactions) || !Array.isArray(data.paymentModes)) return false;
   return true;
+}
+
+/**
+ * Merge an imported backup into the current state.
+ * Keeps existing transactions, adds new ones, and unions payment modes, categories and banners
+ * (imported entries win on id collisions) so banner links (bannerIds) keep resolving.
+ */
+export function mergeImportedState(current: ExpenseDataState, incoming: ExpenseDataState): ExpenseDataState {
+  const existingIds = new Set(current.transactions.map(t => t.id));
+  const newTransactions = incoming.transactions.filter(t => !existingIds.has(t.id));
+
+  const modeMap = new Map<string, PaymentMode>();
+  current.paymentModes.forEach(m => modeMap.set(m.id, m));
+  (incoming.paymentModes || []).forEach(m => modeMap.set(m.id, m));
+
+  const bannerMap = new Map<string, Banner>();
+  (current.banners || []).forEach(b => bannerMap.set(b.id, b));
+  (incoming.banners || []).forEach(b => bannerMap.set(b.id, b));
+
+  return {
+    version: 2,
+    paymentModes: Array.from(modeMap.values()),
+    transactions: [...newTransactions, ...current.transactions],
+    categories: Array.from(new Set([...(current.categories || []), ...(incoming.categories || [])])),
+    banners: Array.from(bannerMap.values())
+  };
 }
 
 // Google Keep text parser to easily paste from Keep notes!

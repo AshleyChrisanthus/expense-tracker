@@ -24,7 +24,8 @@ describe('Tier 1: Dexie Storage & Schema CRUD Operations', () => {
     assert.ok(Array.isArray(initData.transactions));
     assert.equal(initData.transactions.length, 0);
     assert.ok(initData.paymentModes.length >= 3);
-    assert.ok(initData.banners.length >= 3);
+    assert.ok(Array.isArray(initData.banners));
+    assert.equal(initData.banners.length, 0, 'No banners should be prepopulated');
     assert.ok(initData.categories.length >= 5);
   });
 
