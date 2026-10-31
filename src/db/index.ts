@@ -18,9 +18,9 @@ export interface CategoryItem {
 }
 
 export const DEFAULT_BANNERS: Banner[] = [
-  { id: 'banner-personal', name: 'Personal Room Rent', color: '#8b5cf6', createdAt: 1704067200000 },
-  { id: 'banner-work', name: 'work', color: '#0ea5e9', createdAt: 1704067201000 },
-  { id: 'banner-vacation', name: 'vacation', color: '#f59e0b', createdAt: 1704067202000 },
+  { id: 'banner-personal', name: 'Personal', color: '#8b5cf6', createdAt: 1704067200000 },
+  { id: 'banner-work', name: 'Work', color: '#0ea5e9', createdAt: 1704067201000 },
+  { id: 'banner-vacation', name: 'Vacation', color: '#f59e0b', createdAt: 1704067202000 },
 ];
 
 export class ExpenseDB extends Dexie {
@@ -47,7 +47,7 @@ export class ExpenseDB extends Dexie {
     });
   }
 
-  // Prepopulate with Google Sheet + Keep seed data (v2) or upgrade
+  // Prepopulate default settings on fresh installation
   async initDatabase(): Promise<{
     transactions: Transaction[];
     paymentModes: PaymentMode[];
@@ -57,39 +57,22 @@ export class ExpenseDB extends Dexie {
     const txCount = await this.transactions.count();
     const modeCount = await this.paymentModes.count();
     const bannerCount = await this.banners.count();
-    const dataVer = localStorage.getItem('expense_data_version');
+    const catCount = await this.categories.count();
 
-    if (txCount === 0 || modeCount === 0 || dataVer !== 'v2' || txCount < 50) {
-      await this.transaction('rw', this.transactions, this.paymentModes, this.categories, this.banners, async () => {
-        await this.transactions.clear();
-        await this.paymentModes.clear();
-        await this.categories.clear();
-        await this.banners.clear();
-
-        await this.paymentModes.bulkPut(DEFAULT_PAYMENT_MODES);
-        await this.transactions.bulkPut(INITIAL_TRANSACTIONS);
-        await this.categories.bulkPut(DEFAULT_CATEGORIES.map(c => ({ id: c, name: c })));
-        await this.banners.bulkPut(DEFAULT_BANNERS);
-      });
-
-      localStorage.setItem('expense_data_version', 'v2');
-      localStorage.setItem('expense_tracker_state_v2', JSON.stringify({
-        version: 2,
-        paymentModes: DEFAULT_PAYMENT_MODES,
-        transactions: INITIAL_TRANSACTIONS,
-        categories: DEFAULT_CATEGORIES,
-        banners: DEFAULT_BANNERS
-      }));
-    } else if (bannerCount === 0) {
-      // Seed default banners if upgrading from v1
+    if (modeCount === 0) {
+      await this.paymentModes.bulkPut(DEFAULT_PAYMENT_MODES);
+    }
+    if (catCount === 0) {
+      await this.categories.bulkPut(DEFAULT_CATEGORIES.map(c => ({ id: c, name: c })));
+    }
+    if (bannerCount === 0) {
       await this.banners.bulkPut(DEFAULT_BANNERS);
+    }
+    if (txCount === 0 && INITIAL_TRANSACTIONS.length > 0) {
+      await this.transactions.bulkPut(INITIAL_TRANSACTIONS);
     }
 
     const transactions = await this.transactions.orderBy('date').reverse().toArray();
-    const modifiedTemplates = ensureDefaultRecurringTemplates(transactions);
-    if (modifiedTemplates.length > 0) {
-      await this.transactions.bulkPut(modifiedTemplates);
-    }
     const paymentModes = await this.paymentModes.toArray();
     const catItems = await this.categories.toArray();
     const categories = catItems.length > 0 ? catItems.map(c => c.name) : DEFAULT_CATEGORIES;

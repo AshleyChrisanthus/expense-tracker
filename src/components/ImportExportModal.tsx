@@ -21,7 +21,6 @@ import {
   exportToJsonFile, 
   validateImportData, 
   parseGoogleKeepText,
-  INITIAL_TRANSACTIONS,
   DEFAULT_PAYMENT_MODES,
   DEFAULT_CATEGORIES
 } from '../utils/storage';
@@ -244,14 +243,38 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
   };
 
   const handleResetToKeepSample = () => {
-    if (confirm('Reset transactions to the March 2024 Google Keep sample dataset?')) {
+    if (confirm('Load sample transactions to preview the app?')) {
+      const demoTransactions: Transaction[] = [
+        {
+          id: 'demo-exp-1',
+          date: new Date().toISOString().split('T')[0],
+          amount: 14.50,
+          type: 'expense',
+          paymentModeId: 'bank',
+          category: 'Food & Dining',
+          description: 'Cafe lunch & coffee',
+          status: 'completed',
+          createdAt: Date.now() - 3600000
+        },
+        {
+          id: 'demo-exp-2',
+          date: new Date().toISOString().split('T')[0],
+          amount: 54.20,
+          type: 'expense',
+          paymentModeId: 'bank',
+          category: 'Groceries',
+          description: 'Weekly supermarket groceries',
+          status: 'completed',
+          createdAt: Date.now() - 7200000
+        }
+      ];
       onUpdateState({
         version: 1,
         paymentModes: DEFAULT_PAYMENT_MODES,
-        transactions: INITIAL_TRANSACTIONS,
+        transactions: demoTransactions,
         categories: DEFAULT_CATEGORIES
       });
-      setImportStatus('Reset to March 2024 Google Keep sample data.');
+      setImportStatus('Loaded generic demo transactions.');
     }
   };
 
@@ -538,14 +561,14 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
           <div className="space-y-4">
             <div className="p-4 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-light)] flex items-center justify-between">
               <div>
-                <h4 className="text-sm font-semibold text-[var(--text-primary)]">Restore Sample Keep Data</h4>
-                <p className="text-xs text-[var(--text-secondary)]">Reset transactions back to your March 2024 Google Keep records</p>
+                <h4 className="text-sm font-semibold text-[var(--text-primary)]">Load Demo Data</h4>
+                <p className="text-xs text-[var(--text-secondary)]">Load a couple of generic demo transactions to try out features</p>
               </div>
               <button
                 onClick={handleResetToKeepSample}
                 className="apple-btn apple-btn-secondary text-xs"
               >
-                <RotateCcw className="w-4 h-4" /> Reset Sample
+                <RotateCcw className="w-4 h-4" /> Load Demo
               </button>
             </div>
 

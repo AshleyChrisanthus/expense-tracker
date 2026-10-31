@@ -153,7 +153,7 @@ export const BannersModal: React.FC<BannersModalProps> = ({
             <div className="flex gap-2">
               <input
                 type="text"
-                placeholder="e.g. Personal Room Rent, work..."
+                placeholder="e.g. Vacation Trip, Apartment Rent, Project X..."
                 value={newBannerName}
                 onChange={(e) => {
                   setNewBannerName(e.target.value);

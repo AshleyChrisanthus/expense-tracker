@@ -35,7 +35,7 @@ export interface Transaction {
   recurrenceDayOfMonth?: number; // 1 to 31
   nextDueDate?: string; // YYYY-MM-DD
   isVariableAmount?: boolean; // True when amount changes every time (e.g. casual salary or flexible payment)
-  descriptionTemplate?: string; // Optional template with {amount} placeholder (e.g. "paid {amount}$ weekly company salary to bank account")
+  descriptionTemplate?: string; // Optional template with {amount} placeholder (e.g. "paid {amount}$ weekly salary to bank account")
   bannerIds?: string[]; // IDs of banners/groups this transaction belongs to
   createdAt: number;
   updatedAt?: number;

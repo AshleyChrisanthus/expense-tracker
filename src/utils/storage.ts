@@ -3,9 +3,9 @@ import { PaymentMode, Transaction, ExpenseDataState, Banner } from '../types/exp
 const STORAGE_KEY = 'expense_tracker_state_v2';
 
 export const DEFAULT_BANNERS: Banner[] = [
-  { id: 'banner-personal', name: 'Personal Room Rent', color: '#8b5cf6', createdAt: 1704067200000 },
-  { id: 'banner-work', name: 'work', color: '#0ea5e9', createdAt: 1704067201000 },
-  { id: 'banner-vacation', name: 'vacation', color: '#f59e0b', createdAt: 1704067202000 },
+  { id: 'banner-personal', name: 'Personal', color: '#8b5cf6', createdAt: 1704067200000 },
+  { id: 'banner-work', name: 'Work', color: '#0ea5e9', createdAt: 1704067201000 },
+  { id: 'banner-vacation', name: 'Vacation', color: '#f59e0b', createdAt: 1704067202000 },
 ];
 
 export const DEFAULT_PAYMENT_MODES: PaymentMode[] = [

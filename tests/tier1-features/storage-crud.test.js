@@ -22,7 +22,7 @@ describe('Tier 1: Dexie Storage & Schema CRUD Operations', () => {
     const initData = await dbModule.db.initDatabase();
     assert.ok(initData);
     assert.ok(Array.isArray(initData.transactions));
-    assert.ok(initData.transactions.length > 0);
+    assert.equal(initData.transactions.length, 0);
     assert.ok(initData.paymentModes.length >= 3);
     assert.ok(initData.banners.length >= 3);
     assert.ok(initData.categories.length >= 5);
@@ -134,7 +134,7 @@ describe('Tier 1: Dexie Storage & Schema CRUD Operations', () => {
     const resetResult = await dbModule.db.resetToSampleData();
 
     assert.ok(resetResult);
-    assert.ok(resetResult.transactions.length > 50);
+    assert.ok(Array.isArray(resetResult.transactions));
     const tempTx = await dbModule.db.transactions.get('temporary-tx');
     assert.equal(tempTx, undefined);
   });

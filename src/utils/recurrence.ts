@@ -204,7 +204,7 @@ export function formatRecurrenceLabel(
 
 /**
  * Checks whether a description or template contains an embedded amount placeholder ({amount})
- * or dollar amount pattern (e.g. "paid 783.27$ weekly company salary to bank account").
+ * or dollar amount pattern (e.g. "paid 783.27$ weekly salary to bank account").
  */
 export function hasEmbeddedAmountTemplate(text?: string): boolean {
   if (!text) return false;
@@ -214,8 +214,8 @@ export function hasEmbeddedAmountTemplate(text?: string): boolean {
 
 /**
  * Converts a description with an embedded dollar amount into a reusable {amount} template.
- * e.g. "paid 783.27$ weekly company salary to bank account"
- *   -> "paid {amount}$ weekly company salary to bank account"
+ * e.g. "paid 783.27$ weekly salary to bank account"
+ *   -> "paid {amount}$ weekly salary to bank account"
  */
 export function extractDescriptionTemplate(description: string): string | undefined {
   if (!description) return undefined;
@@ -231,7 +231,7 @@ export function extractDescriptionTemplate(description: string): string | undefi
 
 /**
  * Extracts a numeric amount string from a description containing a dollar figure.
- * e.g. "paid 783.27$ weekly company salary to bank account" -> "783.27"
+ * e.g. "paid 783.27$ weekly salary to bank account" -> "783.27"
  */
 export function extractAmountFromDescription(description: string): string | null {
   if (!description) return null;
@@ -244,7 +244,7 @@ export function extractAmountFromDescription(description: string): string | null
 
 /**
  * Populates a templated description (or description with an embedded dollar figure)
- * with the provided amount. Leaves non-templated descriptions (e.g. "paid to family") untouched.
+ * with the provided amount. Leaves non-templated descriptions (e.g. "paid to friend") untouched.
  */
 export function formatTemplatedDescription(
   templateOrDescription: string,
@@ -274,7 +274,7 @@ export function formatTemplatedDescription(
 
 /**
  * Normalizes a transaction description/template into a stable group key for recurring matching
- * so variable-amount entries (e.g. "paid 783.27$ salary group..." and "paid 835.12$ salary group...")
+ * so variable-amount entries (e.g. "paid 783.27$ weekly salary..." and "paid 835.12$ weekly salary...")
  * map to the same recurring series.
  */
 export function normalizeRecurringKey(description: string, descriptionTemplate?: string): string {

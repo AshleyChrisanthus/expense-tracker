@@ -187,7 +187,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
 
   const applyPresetTemplate = (preset: 'weekly_salary' | 'on_demand_expense') => {
     if (preset === 'weekly_salary') {
-      const tpl = 'paid {amount}$ weekly company salary to bank account';
+      const tpl = 'paid {amount}$ weekly salary to bank account';
       setType('income');
       setPaymentModeId('bank');
       setCategory(categories.includes('Income') ? 'Income' : categories[0] || 'Income');
@@ -203,7 +203,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
       setRecurrence('as_needed');
       setIsVariableAmount(true);
       setDescriptionTemplate('');
-      setDescription('paid to family');
+      setDescription('flexible payment as needed');
     }
   };
 
@@ -506,7 +506,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                   type="button"
                   onClick={() => applyPresetTemplate('weekly_salary')}
                   className="text-[10px] px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/25 transition-colors font-medium"
-                  title="Fill template: paid {amount}$ weekly company salary to bank account (Weekly Wednesday Income)"
+                  title="Fill template: paid {amount}$ weekly salary to bank account (Weekly Wednesday Income)"
                 >
                   + Weekly Salary Template
                 </button>
@@ -514,9 +514,9 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                   type="button"
                   onClick={() => applyPresetTemplate('on_demand_expense')}
                   className="text-[10px] px-2 py-0.5 rounded-md bg-purple-500/15 text-purple-400 border border-purple-500/30 hover:bg-purple-500/25 transition-colors font-medium"
-                  title="Fill template: paid to family (As Needed / Flexible Recurring Expense)"
+                  title="Fill template: flexible payment as needed (As Needed / Flexible Recurring Expense)"
                 >
-                  + paid to family Template
+                  + Flexible Template
                 </button>
               </div>
             </div>
@@ -525,7 +525,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
               required
               value={description}
               onChange={(e) => handleDescriptionChange(e.target.value)}
-              placeholder="e.g. paid 783.27$ weekly company salary to bank account, paid to family"
+              placeholder="e.g. Groceries, Weekly Rent, Restaurant dinner..."
               className="apple-input text-xs"
             />
             {(descriptionTemplate || hasEmbeddedAmountTemplate(description)) && (
