@@ -1,5 +1,5 @@
 // Service Worker for Expense Tracker PWA
-const CACHE_NAME = 'expense-tracker-vault-7b6fdf30';
+const CACHE_NAME = 'expense-tracker-vault-94382efc';
 const PRECACHE_ASSETS = [
   '/',
   '/index.html',
