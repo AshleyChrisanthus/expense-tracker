@@ -103,6 +103,14 @@ export async function getStorageModule() {
   return await import('../../src/utils/storage.js');
 }
 
+export async function getTransactionSheetModule() {
+  const tsPath = path.resolve(process.cwd(), 'src/utils/transactionSheet.ts');
+  if (fs.existsSync(tsPath)) {
+    return await import('../../src/utils/transactionSheet.ts');
+  }
+  return await import('../../src/utils/transactionSheet.js');
+}
+
 export async function getSyncModules() {
   const crypto = await import('../../src/services/sync/crypto.ts');
   const merger = await import('../../src/services/sync/merger.ts');

@@ -2378,9 +2378,11 @@ export const App: React.FC = () => {
         modes={dataState.paymentModes}
         categories={dataState.categories}
         banners={dataState.banners}
+        transactions={dataState.transactions}
         initialTransaction={editingTx}
         onManageCategories={() => setIsCategoriesModalOpen(true)}
         onManageBanners={() => setIsBannersModalOpen(true)}
+        onManageModes={() => setIsModesModalOpen(true)}
       />
 
       <PaymentModesModal

@@ -201,7 +201,7 @@ export function parseGoogleKeepText(text: string, currentModes: PaymentMode[]): 
       continue;
     }
 
-    const expenseMatch = line.match(/^(\d+(?:\.\d+)?)\$?\s*[-–]\s*(?:from\s*)?([a-zA-Z0-9_\s]+)\s*[-–]\s*(.*)$/i);
+    const expenseMatch = line.match(/^\$?(\d+(?:\.\d+)?)\$?\s*[-–]\s*(?:from\s*)?([a-zA-Z0-9_\s]+)\s*[-–]\s*(.*)$/i);
     if (expenseMatch) {
       const amount = parseFloat(expenseMatch[1]);
       const modeRaw = expenseMatch[2].trim().toLowerCase();
@@ -214,6 +214,10 @@ export function parseGoogleKeepText(text: string, currentModes: PaymentMode[]): 
       else if (descLower.includes('grocery') || descLower.includes('aldi') || descLower.includes('coles') || descLower.includes('woolworths') || descLower.includes('wolworths')) category = 'Groceries';
       else if (descLower.includes('coffee') || descLower.includes('kfc') || descLower.includes('lunch') || descLower.includes('burger')) category = 'Food & Dining';
       else if (descLower.includes('transport') || descLower.includes('myki')) category = 'Transport';
+      else if (descLower.includes('insurance') || descLower.includes('bupa') || descLower.includes('ovhc') || descLower.includes('medibank') || descLower.includes('allianz')) category = 'Insurance';
+      else if (descLower.includes('utility') || descLower.includes('utilities') || descLower.includes('electricity') || descLower.includes('gas') || descLower.includes('bill') || descLower.includes('optus') || descLower.includes('telstra')) category = 'Utilities';
+      else if (descLower.includes('salary') || descLower.includes('wage') || descLower.includes('payroll') || descLower.includes('paycheck')) category = 'Salary';
+      else if (descLower.includes('shopping') || descLower.includes('kmart') || descLower.includes('target') || descLower.includes('amazon')) category = 'Shopping';
 
       results.push({
         id: 'imported-' + Math.random().toString(36).substring(2, 9),
