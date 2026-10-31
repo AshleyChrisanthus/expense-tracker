@@ -64,6 +64,8 @@ import { VaultFooterBadge } from './components/mobile/VaultFooterBadge';
 import { BottomNavBar, MobileTab } from './components/mobile/BottomNavBar';
 import { AccountsView } from './components/mobile/AccountsView';
 import { MobileRecurringView } from './components/mobile/MobileRecurringView';
+import { MobileAnalyticsView } from './components/mobile/MobileAnalyticsView';
+import { downloadExportToBrowser } from './services/exportService';
 import { 
   getRecurrenceDueInfo, 
   formatRecurrenceLabel, 
@@ -92,6 +94,7 @@ export const App: React.FC = () => {
   const [isCategoriesModalOpen, setIsCategoriesModalOpen] = useState(false);
   const [isBannersModalOpen, setIsBannersModalOpen] = useState(false);
   const [isImportExportOpen, setIsImportExportOpen] = useState(false);
+  const [importExportInitialTab, setImportExportInitialTab] = useState<'json' | 'keep' | 'danger'>('json');
   const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>(() => syncManager.getStatus());
   const [showAnalytics, setShowAnalytics] = useState(false);
@@ -438,6 +441,21 @@ export const App: React.FC = () => {
       setToastMessage(`Logged "${finalDescription}" ($${finalAmount.toFixed(2)}) for today!`);
     }
     setTimeout(() => setToastMessage(null), 3500);
+  };
+
+  const handleExportJson = () => {
+    try {
+      const res = downloadExportToBrowser(dataState);
+      if (res.success) {
+        const sizeStr = res.fileSize ? ` (${(res.fileSize / 1024).toFixed(1)} KB)` : '';
+        setToastMessage(`Data Vault exported${sizeStr}`);
+        setTimeout(() => setToastMessage(null), 3500);
+      }
+    } catch (err) {
+      console.error('Export failed:', err);
+      setToastMessage('Export failed. Please check browser permissions.');
+      setTimeout(() => setToastMessage(null), 3500);
+    }
   };
 
   const handleSavePaymentModes = async (modes: PaymentMode[]) => {
@@ -934,7 +952,7 @@ export const App: React.FC = () => {
         title={
           mobileTab === 'feed' ? 'Feed Timeline' :
           mobileTab === 'recurring' ? 'Recurring Bills' :
-          mobileTab === 'analytics' ? 'Visual Analytics' :
+          mobileTab === 'analytics' ? 'Analytics Breakdown' :
           'Vault Accounts'
         }
         syncStatus={syncStatus}
@@ -1091,21 +1109,31 @@ export const App: React.FC = () => {
             onOpenThemeModal={() => setIsThemeModalOpen(true)}
           />
         ) : mobileTab === 'analytics' ? (
-          <VisualAnalytics
+          <MobileAnalyticsView
             transactions={dataState.transactions}
             paymentModes={dataState.paymentModes}
             categories={dataState.categories}
             banners={dataState.banners || []}
-            filteredTransactions={filteredTransactions}
+            syncStatus={syncStatus}
             activeMonthFilter={selectedMonthFilter}
-            onSelectMonth={(m) => setSelectedMonthFilter(m)}
-            onSelectCategory={(c) => setSelectedCategoryFilter(c)}
-            onSelectMode={(m) => setSelectedModeFilter(m)}
-            onSelectBanner={(b) => setSelectedBannerFilter(b)}
-            onClose={() => {
-              setShowAnalytics(false);
+            onSelectCategory={(c) => {
+              setSelectedCategoryFilter(c);
               setMobileTab('feed');
             }}
+            onSelectMode={(m) => {
+              setSelectedModeFilter(m);
+              setMobileTab('feed');
+            }}
+            onSelectBanner={(b) => {
+              setSelectedBannerFilter(b);
+              setMobileTab('feed');
+            }}
+            onExportJson={handleExportJson}
+            onOpenKeepSync={() => {
+              setImportExportInitialTab('keep');
+              setIsImportExportOpen(true);
+            }}
+            onOpenCloudSync={() => setIsSyncModalOpen(true)}
           />
         ) : mobileTab === 'recurring' ? (
           /* Dedicated Recurring Bills & Smart Templates Mobile View (Issue #21) */
@@ -1380,6 +1408,13 @@ export const App: React.FC = () => {
             onSelectMode={(m) => setSelectedModeFilter(m)}
             onSelectBanner={(b) => setSelectedBannerFilter(b)}
             onClose={() => setShowAnalytics(false)}
+            syncStatus={syncStatus}
+            onExportJson={handleExportJson}
+            onOpenKeepSync={() => {
+              setImportExportInitialTab('keep');
+              setIsImportExportOpen(true);
+            }}
+            onOpenCloudSync={() => setIsSyncModalOpen(true)}
           />
         ) : (
           <div className="flex items-center justify-between p-3.5 rounded-2xl glass-panel border border-[var(--border-light)] hover:border-[var(--accent)]/40 transition-all">
@@ -2415,10 +2450,11 @@ export const App: React.FC = () => {
         onClose={() => {
           setIsImportExportOpen(false);
           setSharedKeepText(null);
+          setImportExportInitialTab('json');
         }}
         currentState={dataState}
         onUpdateState={handleUpdateDataState}
-        initialTab={sharedKeepText ? 'keep' : undefined}
+        initialTab={sharedKeepText ? 'keep' : importExportInitialTab}
         initialKeepText={sharedKeepText || undefined}
       />
 

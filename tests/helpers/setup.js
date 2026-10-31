@@ -111,6 +111,14 @@ export async function getTransactionSheetModule() {
   return await import('../../src/utils/transactionSheet.js');
 }
 
+export async function getAnalyticsModule() {
+  const tsPath = path.resolve(process.cwd(), 'src/utils/analytics.ts');
+  if (fs.existsSync(tsPath)) {
+    return await import('../../src/utils/analytics.ts');
+  }
+  return await import('../../src/utils/analytics.js');
+}
+
 export async function getSyncModules() {
   const crypto = await import('../../src/services/sync/crypto.ts');
   const merger = await import('../../src/services/sync/merger.ts');

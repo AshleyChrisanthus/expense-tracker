@@ -11,9 +11,12 @@ import {
   Landmark, 
   Banknote, 
   Coins, 
-  Smartphone
+  Smartphone,
+  Sparkles
 } from 'lucide-react';
 import { Transaction, PaymentMode, Banner } from '../types/expense';
+import type { SyncStatus } from '../services/sync/types';
+import { MobileAnalyticsView } from './mobile/MobileAnalyticsView';
 
 interface VisualAnalyticsProps {
   transactions: Transaction[];
@@ -27,6 +30,10 @@ interface VisualAnalyticsProps {
   onSelectMode: (modeId: string) => void;
   onSelectBanner: (bannerId: string) => void;
   onClose: () => void;
+  syncStatus?: SyncStatus;
+  onExportJson?: () => void;
+  onOpenKeepSync?: () => void;
+  onOpenCloudSync?: () => void;
 }
 
 // Curated vibrant accessible palette for categories
@@ -239,10 +246,14 @@ export const VisualAnalytics: React.FC<VisualAnalyticsProps> = ({
   onSelectCategory,
   onSelectMode,
   onSelectBanner,
-  onClose
+  onClose,
+  syncStatus,
+  onExportJson,
+  onOpenKeepSync,
+  onOpenCloudSync
 }) => {
-  // Visual Analytics Active Tab: 'overview' | 'categories' | 'modes' | 'banners' | 'trends'
-  const [activeTab, setActiveTab] = useState<'overview' | 'categories' | 'modes' | 'banners' | 'trends'>('overview');
+  // Visual Analytics Active Tab: 'overview' | 'stitch' | 'categories' | 'modes' | 'banners' | 'trends'
+  const [activeTab, setActiveTab] = useState<'overview' | 'stitch' | 'categories' | 'modes' | 'banners' | 'trends'>('overview');
 
   // Time scope filter: 'all' | 'feed' | 'year' | '6months' | '3months'
   const [timeScope, setTimeScope] = useState<'all' | 'feed' | 'year' | '6months' | '3months'>('all');
@@ -638,6 +649,18 @@ export const VisualAnalytics: React.FC<VisualAnalyticsProps> = ({
         </button>
 
         <button
+          onClick={() => setActiveTab('stitch')}
+          className={`px-3 py-1.5 rounded-xl font-semibold flex items-center gap-1.5 transition-all shrink-0 ${
+            activeTab === 'stitch'
+              ? 'bg-[var(--accent)] text-white shadow-sm'
+              : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]'
+          }`}
+        >
+          <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+          <span>Stitch Mobile View</span>
+        </button>
+
+        <button
           onClick={() => setActiveTab('categories')}
           className={`px-3 py-1.5 rounded-xl font-semibold flex items-center gap-1.5 transition-all shrink-0 ${
             activeTab === 'categories'
@@ -690,7 +713,24 @@ export const VisualAnalytics: React.FC<VisualAnalyticsProps> = ({
         </button>
       </div>
 
-      {/* Period Quick Highlights Strip */}
+      {activeTab === 'stitch' ? (
+        <MobileAnalyticsView
+          transactions={transactions}
+          paymentModes={paymentModes}
+          categories={_categories}
+          banners={banners}
+          syncStatus={syncStatus}
+          activeMonthFilter={activeMonthFilter}
+          onSelectCategory={onSelectCategory}
+          onSelectMode={onSelectMode}
+          onSelectBanner={onSelectBanner}
+          onExportJson={onExportJson}
+          onOpenKeepSync={onOpenKeepSync}
+          onOpenCloudSync={onOpenCloudSync}
+        />
+      ) : (
+        <>
+          {/* Period Quick Highlights Strip */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div className="p-3 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-light)]">
           <div className="text-[10px] uppercase font-semibold text-[var(--text-secondary)]">Scope Expenses</div>
@@ -1187,6 +1227,8 @@ export const VisualAnalytics: React.FC<VisualAnalyticsProps> = ({
           )}
 
         </div>
+      )}
+        </>
       )}
     </section>
   );
