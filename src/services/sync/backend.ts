@@ -5,7 +5,7 @@ export interface CloudLockerAdapter {
   put(vaultId: string, envelope: EncryptedVaultEnvelope): Promise<boolean>;
 }
 
-export const DEFAULT_CLOUDFLARE_WORKER_URL = 'https://expense-tracker-sync.ashleychrisanthus.workers.dev';
+export const DEFAULT_CLOUDFLARE_WORKER_URL = 'https://app-directory-sync.ashleychrisanthus.workers.dev';
 
 /**
  * Default Public Zero-Knowledge REST Relay

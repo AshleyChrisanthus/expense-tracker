@@ -76,6 +76,11 @@ export class SyncManager {
       if (raw) {
         this.config = JSON.parse(raw);
         if (this.config) {
+          // Automatic migration: if pointing to undeployed expense-tracker-sync, update to active app-directory-sync
+          if (this.config.customEndpoint?.includes('expense-tracker-sync.ashleychrisanthus.workers.dev')) {
+            this.config.customEndpoint = DEFAULT_CLOUDFLARE_WORKER_URL;
+            localStorage.setItem(CONFIG_STORAGE_KEY, JSON.stringify(this.config));
+          }
           if (this.config.enabled) {
             this.setStatus('synced', this.config.lastSyncedAt ? new Date(this.config.lastSyncedAt) : null);
           } else {
@@ -213,7 +218,9 @@ export class SyncManager {
   getDefaultEndpoint(): string {
     if (typeof localStorage !== 'undefined') {
       const stored = localStorage.getItem('expense_tracker_sync_endpoint_override');
-      if (stored) return stored;
+      if (stored && !stored.includes('expense-tracker-sync.ashleychrisanthus.workers.dev')) {
+        return stored;
+      }
     }
     return DEFAULT_CLOUDFLARE_WORKER_URL;
   }

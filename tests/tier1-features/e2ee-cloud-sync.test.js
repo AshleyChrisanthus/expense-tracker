@@ -292,7 +292,7 @@ describe('Tier 1: End-to-End Encrypted (E2EE) Cloud Sync & QR Pairing (Issue #19
     });
 
     try {
-      const config = await manager.createNewVault('custom', 'https://expense-tracker-sync.ashleychrisanthus.workers.dev');
+      const config = await manager.createNewVault('custom', 'https://offline-test.workers.dev');
       assert.ok(config, 'Config must be returned');
       assert.ok(config.vaultId, 'Must generate vault ID');
       assert.ok(config.secretKey, 'Must generate AES-GCM secret key');
