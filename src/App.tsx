@@ -36,7 +36,7 @@ import { ThemeMode } from './types/theme';
 import { toggleThemeMode } from './styles/theme';
 import { ThemeModal } from './components/ThemeModal';
 import { Transaction, PaymentMode, ExpenseDataState, Banner } from './types/expense';
-import { loadExpenseData, saveExpenseData } from './utils/storage';
+import { loadExpenseData, saveExpenseData, DEFAULT_BANNERS } from './utils/storage';
 import { TransactionModal } from './components/TransactionModal';
 import { PaymentModesModal } from './components/PaymentModesModal';
 import { CategoriesModal } from './components/CategoriesModal';
@@ -155,7 +155,7 @@ export const App: React.FC = () => {
         transactions: initResult.transactions,
         paymentModes: initResult.paymentModes,
         categories: initResult.categories,
-        banners: initResult.banners
+        banners: (initResult.banners && initResult.banners.length > 0) ? initResult.banners : DEFAULT_BANNERS
       };
       setDataState(initial);
 
@@ -544,12 +544,17 @@ export const App: React.FC = () => {
   };
 
   const handleUpdateDataState = async (newState: ExpenseDataState) => {
+    let finalState = newState;
     try {
-      await db.importData(newState, 'replace');
+      const imported = await db.importData(newState, 'replace');
+      finalState = imported;
     } catch (e) {
       console.error('Dexie import failed:', e);
+      if (!finalState.banners || finalState.banners.length === 0) {
+        finalState = { ...finalState, banners: DEFAULT_BANNERS };
+      }
     }
-    setDataState(newState);
+    setDataState(finalState);
     syncManager.schedulePush();
   };
 

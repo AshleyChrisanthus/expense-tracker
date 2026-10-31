@@ -77,12 +77,16 @@ export class ExpenseDB extends Dexie {
     const catItems = await this.categories.toArray();
     const categories = catItems.length > 0 ? catItems.map(c => c.name) : DEFAULT_CATEGORIES;
     const banners = await this.banners.toArray();
+    const finalBanners = (banners && banners.length > 0) ? banners : DEFAULT_BANNERS;
+    if (banners.length === 0) {
+      await this.banners.bulkPut(DEFAULT_BANNERS);
+    }
 
     return {
       transactions,
       paymentModes,
       categories,
-      banners: banners.length > 0 ? banners : DEFAULT_BANNERS
+      banners: finalBanners
     };
   }
 
@@ -198,7 +202,7 @@ export class ExpenseDB extends Dexie {
   }
 
   async importData(data: ExpenseDataState, mode: 'merge' | 'replace'): Promise<ExpenseDataState> {
-    const bannersToImport = data.banners || DEFAULT_BANNERS;
+    const bannersToImport = (data.banners && data.banners.length > 0) ? data.banners : DEFAULT_BANNERS;
     if (mode === 'replace') {
       await this.transaction('rw', this.transactions, this.paymentModes, this.categories, this.banners, async () => {
         await this.transactions.clear();
@@ -211,7 +215,10 @@ export class ExpenseDB extends Dexie {
         await this.categories.bulkPut(data.categories.map(c => ({ id: c, name: c })));
         await this.banners.bulkPut(bannersToImport);
       });
-      return data;
+      return {
+        ...data,
+        banners: bannersToImport
+      };
     } else {
       // Merge
       await this.transaction('rw', this.transactions, this.paymentModes, this.categories, this.banners, async () => {
