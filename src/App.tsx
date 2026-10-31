@@ -29,7 +29,15 @@ import {
   GitCommit,
   ChevronDown,
   BarChart3,
-  Cloud
+  Cloud,
+  ArrowDownLeft,
+  ArrowUpRight,
+  SlidersHorizontal,
+  Shield,
+  Home,
+  Utensils,
+  Bike,
+  ShoppingBag
 } from 'lucide-react';
 
 import { ThemeMode } from './types/theme';
@@ -47,6 +55,14 @@ import { SyncModal } from './components/SyncModal';
 import { syncManager } from './services/sync/sync-manager';
 import type { SyncStatus } from './services/sync/types';
 import { db } from './db';
+import { MobileHeader } from './components/mobile/MobileHeader';
+import { VaultFlowSummary } from './components/mobile/VaultFlowSummary';
+import { BannerFilterChips } from './components/mobile/BannerFilterChips';
+import { FilterSheetModal } from './components/mobile/FilterSheetModal';
+import { FinancialBreakdownCard } from './components/mobile/FinancialBreakdownCard';
+import { VaultFooterBadge } from './components/mobile/VaultFooterBadge';
+import { BottomNavBar, MobileTab } from './components/mobile/BottomNavBar';
+import { AccountsView } from './components/mobile/AccountsView';
 import { 
   getRecurrenceDueInfo, 
   formatRecurrenceLabel, 
@@ -94,6 +110,77 @@ export const App: React.FC = () => {
   const [bannerLineMode, setBannerLineMode] = useState<'all' | 'recurring' | 'custom' | 'off'>('all');
   const [customBannerLineIds, setCustomBannerLineIds] = useState<string[]>([]);
   const [isBannerModeDropdownOpen, setIsBannerModeDropdownOpen] = useState(false);
+
+  // Mobile navigation & bottom bar states (Stitch exploration)
+  const [mobileTab, setMobileTab] = useState<MobileTab>('feed');
+  const [isFilterSheetOpen, setIsFilterSheetOpen] = useState(false);
+  const [isBottomNavVisible, setIsBottomNavVisible] = useState(true);
+  const [isMobileSearchActive, setIsMobileSearchActive] = useState(false);
+  const mobileSearchInputRef = React.useRef<HTMLInputElement>(null);
+  const lastScrollYRef = React.useRef(0);
+
+  // Scroll direction detection for auto-hiding mobile bottom nav bar & FAB
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const handleScroll = () => {
+      const currentY = window.scrollY;
+      if (currentY < 40) {
+        setIsBottomNavVisible(true);
+      } else if (currentY > lastScrollYRef.current + 8) {
+        setIsBottomNavVisible(false);
+      } else if (currentY < lastScrollYRef.current - 8) {
+        setIsBottomNavVisible(true);
+      }
+      lastScrollYRef.current = currentY;
+    };
+
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  // Category Icon Resolver
+  const getCategoryIcon = (category: string, type: string) => {
+    const cat = (category || '').toLowerCase();
+    if (cat.includes('insurance') || cat.includes('medical') || cat.includes('health') || cat.includes('doctor')) {
+      return <Shield className="w-4 h-4" />;
+    }
+    if (cat.includes('rent') || cat.includes('housing') || cat.includes('accommodation') || cat.includes('home') || cat.includes('room')) {
+      return <Home className="w-4 h-4" />;
+    }
+    if (cat.includes('food') || cat.includes('dining') || cat.includes('grocery') || cat.includes('groceries') || cat.includes('meal') || cat.includes('restaurant')) {
+      return <Utensils className="w-4 h-4" />;
+    }
+    if (cat.includes('delivery') || cat.includes('transport') || cat.includes('bike') || cat.includes('e-bike') || cat.includes('uber') || cat.includes('fuel')) {
+      return <Bike className="w-4 h-4" />;
+    }
+    if (cat.includes('shopping') || cat.includes('cloth') || cat.includes('store') || cat.includes('amazon')) {
+      return <ShoppingBag className="w-4 h-4" />;
+    }
+    if (cat.includes('laundry')) {
+      return <Sparkles className="w-4 h-4" />;
+    }
+
+    if (type === 'income') return <ArrowDownLeft className="w-4 h-4" />;
+    if (type === 'transfer') return <ArrowRightLeft className="w-4 h-4" />;
+    return <ArrowUpRight className="w-4 h-4" />;
+  };
+
+  // Secondary active filters count for filter sliders badge
+  const activeSecondaryFilterCount = [
+    selectedMonthFilter !== 'all',
+    selectedCategoryFilter !== 'all',
+    selectedTypeFilter !== 'all',
+    selectedModeFilter !== 'all'
+  ].filter(Boolean).length;
+
+  const handleResetAllFilters = () => {
+    setSelectedTypeFilter('all');
+    setSelectedModeFilter('all');
+    setSelectedCategoryFilter('all');
+    setSelectedMonthFilter('all');
+    setSelectedBannerFilter('all');
+    setSearchQuery('');
+  };
 
   // Incoming Web Share Target parameters (PWA mobile share sheet)
   const [sharedKeepText, setSharedKeepText] = useState<string | null>(null);
@@ -702,7 +789,15 @@ export const App: React.FC = () => {
 
   // Group transactions by Date (like Google Keep notes format)
   const groupedTransactions = useMemo(() => {
-    const groups: { date: string; displayDate: string; items: Transaction[]; dayTotal: number }[] = [];
+    const groups: { 
+      date: string; 
+      displayDate: string; 
+      items: Transaction[]; 
+      dayTotal: number;
+      dayNet: number;
+      dayIncome: number;
+      dayExpense: number;
+    }[] = [];
     const dateMap = new Map<string, Transaction[]>();
 
     filteredTransactions.forEach(tx => {
@@ -714,31 +809,40 @@ export const App: React.FC = () => {
     });
 
     dateMap.forEach((items, dateStr) => {
-      // format display date e.g. "March 31, 2024"
+      // format display date e.g. "Oct 28, 2026"
       const parts = dateStr.split('-');
       let displayDate = dateStr;
       if (parts.length === 3) {
         const dObj = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
-        displayDate = dObj.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+        displayDate = dObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
       }
 
-      // Day total calculates completed expenses and transfer fees
-      const dayTotal = items.reduce((acc, curr) => {
-        if (curr.status === 'cancelled') return acc;
-        if (curr.type === 'expense') {
-          return acc + curr.amount;
+      let dayIncome = 0;
+      let dayExpense = 0;
+      let dayFees = 0;
+
+      items.forEach(curr => {
+        if (curr.status === 'cancelled') return;
+        if (curr.type === 'income') {
+          dayIncome += curr.amount;
+        } else if (curr.type === 'expense') {
+          dayExpense += curr.amount;
+        } else if (curr.type === 'transfer' && curr.fee) {
+          dayFees += curr.fee;
         }
-        if (curr.type === 'transfer' && curr.fee) {
-          return acc + curr.fee;
-        }
-        return acc;
-      }, 0);
+      });
+
+      const dayTotal = dayExpense + dayFees;
+      const dayNet = dayIncome - dayExpense - dayFees;
 
       groups.push({
         date: dateStr,
         displayDate,
         items,
-        dayTotal
+        dayTotal,
+        dayNet,
+        dayIncome,
+        dayExpense
       });
     });
 
@@ -823,9 +927,27 @@ export const App: React.FC = () => {
   }, [dataState]);
 
   return (
-    <div className="min-h-screen pb-16">
-      {/* Top Glass Header */}
-      <header className="sticky top-0 z-40 w-full glass-panel border-b border-[var(--border-light)] px-4 sm:px-8 py-3.5">
+    <div className="min-h-screen pb-28 md:pb-16">
+      {/* Mobile Top Header (Stitch Exploration) */}
+      <MobileHeader
+        title={
+          mobileTab === 'feed' ? 'Feed Timeline' :
+          mobileTab === 'recurring' ? 'Recurring Bills' :
+          mobileTab === 'analytics' ? 'Visual Analytics' :
+          'Vault Accounts'
+        }
+        syncStatus={syncStatus}
+        onSearchToggle={() => {
+          if (mobileTab !== 'feed') setMobileTab('feed');
+          setIsMobileSearchActive(true);
+          setTimeout(() => mobileSearchInputRef.current?.focus(), 60);
+        }}
+        onOpenSync={() => setIsSyncModalOpen(true)}
+        isSearchActive={isMobileSearchActive || Boolean(searchQuery)}
+      />
+
+      {/* Desktop Top Glass Header */}
+      <header className="sticky top-0 z-40 w-full glass-panel border-b border-[var(--border-light)] px-4 sm:px-8 py-3.5 hidden md:block">
         <div className="max-w-6xl mx-auto flex items-center justify-between gap-4">
           {/* Logo & Title */}
           <div className="flex items-center gap-3">
@@ -950,10 +1072,284 @@ export const App: React.FC = () => {
       </header>
 
       {/* Main Container */}
-      <main className="max-w-6xl mx-auto px-4 sm:px-8 pt-6 space-y-6">
-        
-        {/* Metric Cards Banner */}
-        <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
+      <main className="max-w-6xl mx-auto px-4 sm:px-8 pt-4 sm:pt-6 space-y-5 sm:space-y-6">
+        {mobileTab === 'accounts' ? (
+          <AccountsView
+            paymentModes={dataState.paymentModes}
+            transactions={dataState.transactions}
+            banners={dataState.banners || []}
+            syncStatus={syncStatus}
+            modeSpending={metrics.modeSpending}
+            totalTransfers={metrics.totalTransfers}
+            transferFees={metrics.transferFees}
+            onOpenModesModal={() => setIsModesModalOpen(true)}
+            onOpenCategoriesModal={() => setIsCategoriesModalOpen(true)}
+            onOpenBannersModal={() => setIsBannersModalOpen(true)}
+            onOpenImportExportModal={() => setIsImportExportOpen(true)}
+            onOpenSyncModal={() => setIsSyncModalOpen(true)}
+            onOpenThemeModal={() => setIsThemeModalOpen(true)}
+          />
+        ) : mobileTab === 'analytics' ? (
+          <VisualAnalytics
+            transactions={dataState.transactions}
+            paymentModes={dataState.paymentModes}
+            categories={dataState.categories}
+            banners={dataState.banners || []}
+            filteredTransactions={filteredTransactions}
+            activeMonthFilter={selectedMonthFilter}
+            onSelectMonth={(m) => setSelectedMonthFilter(m)}
+            onSelectCategory={(c) => setSelectedCategoryFilter(c)}
+            onSelectMode={(m) => setSelectedModeFilter(m)}
+            onSelectBanner={(b) => setSelectedBannerFilter(b)}
+            onClose={() => {
+              setShowAnalytics(false);
+              setMobileTab('feed');
+            }}
+          />
+        ) : mobileTab === 'recurring' ? (
+          /* Dedicated Recurring Bills & Smart Templates Tab on Mobile */
+          <div className="space-y-4 pb-12">
+            <div className="apple-card p-4 bg-gradient-to-br from-[var(--bg-secondary)] to-purple-950/20 border-purple-500/20">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="p-2 rounded-xl bg-purple-500/15 text-purple-400">
+                    <Repeat className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h2 className="text-base font-bold text-[var(--text-primary)]">
+                      Scheduled Bills & Smart Templates
+                    </h2>
+                    <p className="text-xs text-[var(--text-secondary)]">
+                      {upcomingRecurring.length} recurring schedules & on-demand templates
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingTx({
+                      id: '',
+                      date: new Date().toISOString().split('T')[0],
+                      description: '',
+                      amount: 0,
+                      category: dataState.categories[0] || 'Uncategorized',
+                      paymentModeId: dataState.paymentModes[0]?.id || 'cash',
+                      type: 'expense',
+                      status: 'pending',
+                      recurrence: 'monthly',
+                      createdAt: Date.now()
+                    });
+                    setIsTxModalOpen(true);
+                  }}
+                  className="apple-btn apple-btn-secondary text-xs flex items-center gap-1 font-semibold text-[var(--accent)]"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>New Schedule</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Recurring cards grid */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              {upcomingRecurring.map(({ item, effectiveDueDate, dueInfo, latestPayment }) => {
+                const isAsNeeded = item.recurrence === 'as_needed';
+                const isIncome = item.type === 'income';
+                const activeTemplate = item.descriptionTemplate || (hasEmbeddedAmountTemplate(item.description) ? extractDescriptionTemplate(item.description) : undefined);
+                const isVariable = Boolean(item.isVariableAmount || isAsNeeded || activeTemplate);
+                const typedAmount = recurringCustomAmounts[item.id] ?? '';
+                const fallbackAmt = latestPayment?.amount ?? item.amount;
+                const displayDescription = activeTemplate
+                  ? formatTemplatedDescription(activeTemplate, typedAmount, fallbackAmt)
+                  : item.description;
+
+                return (
+                  <div 
+                    key={item.id}
+                    className={`p-3.5 rounded-xl bg-[var(--bg-secondary)] border flex flex-col justify-between gap-3 transition-all shadow-sm ${
+                      isIncome
+                        ? 'border-emerald-500/25 hover:border-emerald-500/50'
+                        : 'border-[var(--border-light)] hover:border-purple-500/30'
+                    }`}
+                  >
+                    <div className="space-y-1">
+                      <div className="flex items-start justify-between gap-2 min-w-0">
+                        <span className="text-xs font-semibold text-[var(--text-primary)] break-words leading-snug" title={displayDescription}>
+                          {displayDescription}
+                        </span>
+                        <div className="flex items-center gap-1 shrink-0">
+                          {isIncome && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 font-semibold">
+                              Income
+                            </span>
+                          )}
+                          <span className={`text-[10px] px-2 py-0.5 rounded font-medium ${
+                            isAsNeeded
+                              ? 'bg-amber-500/15 text-amber-400'
+                              : isIncome
+                              ? 'bg-emerald-500/15 text-emerald-400'
+                              : 'bg-purple-500/15 text-purple-400'
+                          }`}>
+                            {formatRecurrenceLabel(item.recurrence, item.recurrenceDayOfWeek, item.recurrenceDayOfMonth)}
+                          </span>
+                        </div>
+                      </div>
+                      {activeTemplate && (
+                        <div className="text-[10px] text-[var(--text-secondary)]">
+                          Template: typing amount below populates description &amp; amount
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      {isVariable ? (
+                        <div className="flex items-center gap-1.5">
+                          <span className={`font-mono font-bold text-sm ${isIncome ? 'text-emerald-400' : 'text-rose-400'}`}>
+                            {isIncome ? '+$' : '$'}
+                          </span>
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0.01"
+                            value={typedAmount}
+                            onChange={(e) => setRecurringCustomAmounts(prev => ({ ...prev, [item.id]: e.target.value }))}
+                            placeholder={fallbackAmt.toFixed(2)}
+                            aria-label={`Enter amount for ${item.description}`}
+                            className={`apple-input py-1 px-2 text-xs font-mono font-bold w-28 ${
+                              isIncome
+                                ? 'text-emerald-400 border-emerald-500/30 focus:border-emerald-400'
+                                : 'text-rose-400 border-purple-500/30 focus:border-purple-400'
+                            }`}
+                          />
+                        </div>
+                      ) : (
+                        <span className={`font-mono font-bold text-sm ${isIncome ? 'text-emerald-400' : 'text-rose-400'}`}>
+                          {isIncome ? '+' : ''}${item.amount.toFixed(2)}
+                        </span>
+                      )}
+
+                      <div className="text-right">
+                        {isAsNeeded ? (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/30 font-medium">
+                            On Demand
+                          </span>
+                        ) : dueInfo ? (
+                          dueInfo.isOverdue ? (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-rose-500/15 text-rose-400 border border-rose-500/30 font-medium flex items-center gap-1">
+                              <Clock className="w-2.5 h-2.5" /> Overdue ({Math.abs(dueInfo.diffDays)}d)
+                            </span>
+                          ) : dueInfo.isDueToday ? (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/30 font-medium flex items-center gap-1">
+                              <Bell className="w-2.5 h-2.5" /> Due Today
+                            </span>
+                          ) : dueInfo.isDueSoon ? (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-medium flex items-center gap-1">
+                              <Clock className="w-2.5 h-2.5" /> In {dueInfo.diffDays}d
+                            </span>
+                          ) : (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--bg-primary)] text-[var(--text-secondary)] border border-[var(--border-light)] font-medium">
+                              Due: {dueInfo.formattedDueDate}
+                            </span>
+                          )
+                        ) : null}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-1.5 pt-2 border-t border-[var(--border-light)]/60">
+                      <button
+                        onClick={() => handlePayRecurring(item, effectiveDueDate, 'today')}
+                        className={`text-xs px-2.5 py-1 rounded-lg font-medium transition-all flex items-center gap-1 ${
+                          isIncome
+                            ? 'bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25 border border-emerald-500/30'
+                            : 'bg-purple-500/15 text-purple-400 hover:bg-purple-500/25 border border-purple-500/30'
+                        }`}
+                        title={isIncome ? "Log income today" : "Log expense today"}
+                      >
+                        <Check className="w-3 h-3" />
+                        <span>Log Today</span>
+                      </button>
+
+                      {!isAsNeeded && (
+                        <button
+                          onClick={() => handlePayRecurring(item, effectiveDueDate, 'due')}
+                          className="text-[11px] px-2 py-1 rounded-lg font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-all"
+                          title="Log for scheduled due date"
+                        >
+                          Log for Due Date
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ) : (
+          <>
+            {/* Mobile Stitch Flow Summary, Search & Banner Chips */}
+            <div className="space-y-3.5 md:hidden">
+              <VaultFlowSummary
+                totalIncome={metrics.totalIncome}
+                incomeCount={dataState.transactions.filter(t => t.type === 'income' && t.status !== 'cancelled').length}
+                totalExpense={metrics.totalExpense}
+                expenseCount={dataState.transactions.filter(t => t.type === 'expense' && t.status !== 'cancelled').length}
+                syncState={syncStatus.state}
+              />
+
+              {/* Rounded Dark Glass Search Bar with Filter Sliders */}
+              <div className="relative flex items-center">
+                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-[var(--text-secondary)]">
+                  <Search className="w-4 h-4" />
+                </div>
+                <input
+                  ref={mobileSearchInputRef}
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search rent, groceries, salary..."
+                  className="apple-input apple-input-with-icon pl-10 pr-12 text-xs rounded-2xl bg-[var(--bg-secondary)] border-[var(--border-light)] focus:border-[var(--accent)] shadow-xs"
+                />
+                <button
+                  type="button"
+                  onClick={() => setIsFilterSheetOpen(true)}
+                  className={`absolute inset-y-1.5 right-1.5 px-2.5 rounded-xl flex items-center justify-center gap-1 transition-all border cursor-pointer ${
+                    activeSecondaryFilterCount > 0
+                      ? 'bg-[var(--accent-bg)] border-[var(--accent)] text-[var(--accent)]'
+                      : 'hover:bg-[var(--bg-hover)] border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                  }`}
+                  title="Open Filter Drawer"
+                >
+                  <SlidersHorizontal className="w-4 h-4" />
+                  {activeSecondaryFilterCount > 0 && (
+                    <span className="w-4 h-4 rounded-full bg-[var(--accent)] text-white text-[10px] font-bold flex items-center justify-center font-mono">
+                      {activeSecondaryFilterCount}
+                    </span>
+                  )}
+                </button>
+              </div>
+
+              {/* Banner Filter Chips Scroller */}
+              <BannerFilterChips
+                banners={dataState.banners || []}
+                selectedBannerFilter={selectedBannerFilter}
+                onSelectBanner={(bId) => setSelectedBannerFilter(bId)}
+                transactions={dataState.transactions}
+                onManageBanners={() => setIsBannersModalOpen(true)}
+              />
+
+              {/* Financial Breakdown Quick-Jump Card */}
+              <FinancialBreakdownCard
+                transactions={dataState.transactions}
+                onViewAnalytics={() => {
+                  setMobileTab('analytics');
+                  setShowAnalytics(true);
+                }}
+              />
+            </div>
+
+            {/* Desktop Metric Cards Banner & Filters (hidden on mobile) */}
+            <div className="space-y-6 hidden md:block">
+              {/* Metric Cards Banner */}
+              <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
           {/* Total Income */}
           <div className="apple-card p-4 relative overflow-hidden">
             <div className="flex items-center justify-between text-xs text-[var(--text-secondary)] mb-1.5">
@@ -1297,6 +1693,7 @@ export const App: React.FC = () => {
             </div>
           )}
         </section>
+      </div>
 
         {/* Recurring Expense Due Reminders Banner */}
         {upcomingRecurring.length > 0 && (
@@ -1700,19 +2097,19 @@ export const App: React.FC = () => {
             </div>
           ) : (() => {
             const showMultiTrack = bannerLineMode !== 'off' && activeFeedBanners.length > 0;
-            const gutterWidthPx = showMultiTrack ? Math.max(28, activeFeedBanners.length * 18 + 14) : 0;
+            const gutterWidthPx = showMultiTrack ? Math.max(22, Math.min(activeFeedBanners.length * 16 + 10, 56)) : 0;
 
             return (
               <div className="relative flex items-stretch">
                 {/* Continuous Multi-Track Metro/Git Vertical Lines in OUTER Left Gutter (Left of Date Headers & Cards) */}
                 {showMultiTrack && (
                   <div 
-                    className="relative shrink-0 select-none hidden sm:block"
+                    className="relative shrink-0 select-none"
                     style={{ width: `${gutterWidthPx}px` }}
                   >
                     {/* Continuous Vertical Lines running down the entire height of the feed */}
                     {activeFeedBanners.map((banner, bIdx) => {
-                      const lineLeftPx = bIdx * 18 + 10;
+                      const lineLeftPx = bIdx * 16 + 8;
                       return (
                         <div 
                           key={banner.id}
@@ -1735,6 +2132,7 @@ export const App: React.FC = () => {
                       {/* Date Header Group with Day Total */}
                       <div className="flex items-center justify-between px-2 pt-2">
                         <div className="flex items-center gap-2">
+                          <Calendar className="w-4 h-4 text-[var(--text-secondary)]" />
                           <span className="text-sm font-semibold text-[var(--text-primary)]">
                             {group.displayDate}
                           </span>
@@ -1742,11 +2140,13 @@ export const App: React.FC = () => {
                             ({group.items.length} {group.items.length === 1 ? 'item' : 'items'})
                           </span>
                         </div>
-                        {group.dayTotal > 0 && (
-                          <div className="text-xs font-semibold text-[var(--text-secondary)] font-mono">
-                            Day Total: <span className="text-[var(--text-primary)] font-bold">${group.dayTotal.toFixed(2)}</span>
-                          </div>
-                        )}
+                        <div className={`text-xs font-semibold font-mono px-2.5 py-0.5 rounded-full border shadow-xs ${
+                          group.dayNet >= 0 
+                            ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+                            : 'bg-rose-500/15 text-rose-400 border-rose-500/30'
+                        }`}>
+                          Day Total: {group.dayNet >= 0 ? '+' : '-'}${Math.abs(group.dayNet).toFixed(2)}
+                        </div>
                       </div>
 
                       {/* Items in Day */}
@@ -1784,7 +2184,7 @@ export const App: React.FC = () => {
                               {/* Horizontal Branch Connectors from the Outer Left Gutter into Card */}
                               {showMultiTrack && (
                                 <div 
-                                  className="absolute select-none pointer-events-none hidden sm:block z-10"
+                                  className="absolute select-none pointer-events-none z-10"
                                   style={{ 
                                     left: `-${gutterWidthPx}px`, 
                                     width: `${gutterWidthPx}px`,
@@ -1796,7 +2196,7 @@ export const App: React.FC = () => {
                                     const isLinked = activeTxBanners.some(b => b.id === banner.id);
                                     if (!isLinked) return null;
 
-                                    const lineLeftPx = bIdx * 18 + 10;
+                                    const lineLeftPx = bIdx * 16 + 8;
                                     const linkedIndex = activeTxBanners.findIndex(b => b.id === banner.id);
                                     const totalLinked = activeTxBanners.length;
                                     const topOffsetPercent = totalLinked === 1 ? 50 : Math.round(((linkedIndex + 1) / (totalLinked + 1)) * 100);
@@ -1811,12 +2211,20 @@ export const App: React.FC = () => {
                                           top: `${topOffsetPercent}%` 
                                         }}
                                       >
-                                        {/* Connector bullet node on the vertical track */}
+                                        {/* Connector bullet node on the vertical track with glowing circular node */}
                                         <div 
-                                          className="w-3 h-3 rounded-full border-2 border-[var(--bg-primary)] shadow-md -translate-x-1/2 shrink-0 transition-transform hover:scale-125 cursor-pointer"
-                                          style={{ backgroundColor: banner.color }}
+                                          className="w-3 h-3 rounded-full border-2 border-[var(--bg-primary)] shadow-md -translate-x-1/2 shrink-0 transition-transform hover:scale-125 cursor-pointer relative"
+                                          style={{ 
+                                            backgroundColor: banner.color,
+                                            boxShadow: `0 0 8px ${banner.color}, 0 0 3px rgba(255, 255, 255, 0.7)`
+                                          }}
                                           title={`Linked to: ${banner.name}`}
-                                        />
+                                        >
+                                          <div 
+                                            className="absolute inset-0 rounded-full animate-ping opacity-30" 
+                                            style={{ backgroundColor: banner.color }} 
+                                          />
+                                        </div>
                                         {/* Horizontal branch line connecting into the card */}
                                         <div 
                                           className="h-[2px] transition-all"
@@ -1834,7 +2242,7 @@ export const App: React.FC = () => {
 
                               {/* Transaction Card */}
                               <div
-                                className={`apple-card apple-card-interactive p-4 flex flex-1 flex-col sm:flex-row sm:items-center justify-between gap-3 relative transition-all overflow-hidden ${
+                                className={`apple-card apple-card-interactive p-3.5 sm:p-4 flex flex-1 flex-col justify-between gap-3 relative transition-all overflow-hidden ${
                                   isCancelled ? 'opacity-55' : ''
                                 } ${
                                   isSelected ? 'ring-2 ring-[var(--accent)] bg-[var(--accent-bg)]/30' : ''
@@ -1844,19 +2252,19 @@ export const App: React.FC = () => {
                                 {/* Left Accent Stripe: Divided equally among all associated banners */}
                                 {bannerLineMode !== 'off' && txBanners.length > 0 && (
                                   <div 
-                                    className="absolute left-0 top-0 bottom-0 w-2 transition-all shadow-xs"
+                                    className="absolute left-0 top-0 bottom-0 w-1.5 transition-all shadow-xs"
                                     style={leftEdgeStyle}
                                     title={`Linked to: ${txBanners.map(b => b.name).join(', ')}`}
                                   />
                                 )}
 
-                                {/* Left: Checkbox (in selection mode), Indicator, Mode badge, Description, and Details */}
-                                <div className={`flex items-start sm:items-center gap-3.5 min-w-0 ${bannerLineMode !== 'off' && txBanners.length > 0 ? 'pl-1' : ''}`}>
+                                {/* Top Row: Left Icon, Description & Right Amount */}
+                                <div className={`flex items-start gap-3 min-w-0 ${bannerLineMode !== 'off' && txBanners.length > 0 ? 'pl-1' : ''}`}>
                                   {/* Radio / Checkbox Tick in Selection Mode */}
                                   {isSelectionMode && (
                                     <div 
                                       onClick={(e) => { e.stopPropagation(); handleToggleTxSelection(tx.id); }}
-                                      className="shrink-0 cursor-pointer pt-0.5 sm:pt-0"
+                                      className="shrink-0 cursor-pointer pt-1"
                                     >
                                       <div className={`w-5 h-5 rounded-full border flex items-center justify-center transition-all ${
                                         isSelected 
@@ -1872,43 +2280,70 @@ export const App: React.FC = () => {
                                     </div>
                                   )}
 
-                                  {/* Type icon avatar */}
+                                  {/* Left circular tinted icon indicating transaction direction/category */}
                                   <div 
-                                    className={`p-2.5 rounded-xl shrink-0 mt-0.5 sm:mt-0 ${
+                                    className={`w-9 h-9 rounded-full shrink-0 flex items-center justify-center border transition-all ${
                                       tx.type === 'expense'
-                                        ? 'bg-rose-500/10 text-rose-400'
+                                        ? 'bg-rose-500/15 text-rose-400 border-rose-500/25'
                                         : tx.type === 'income'
-                                        ? 'bg-emerald-500/10 text-emerald-400'
-                                        : 'bg-purple-500/10 text-purple-400'
+                                        ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/25'
+                                        : 'bg-purple-500/15 text-purple-400 border-purple-500/25'
                                     }`}
                                   >
-                                    {tx.type === 'expense' && <TrendingDown className="w-4 h-4" />}
-                                    {tx.type === 'income' && <TrendingUp className="w-4 h-4" />}
-                                    {tx.type === 'transfer' && <ArrowRightLeft className="w-4 h-4" />}
+                                    {getCategoryIcon(tx.category, tx.type)}
                                   </div>
 
-                                  {/* Info */}
-                                  <div className="space-y-1 min-w-0">
-                                    <div className="flex items-center gap-2 flex-wrap">
-                                      <span className={`text-sm font-medium ${isCancelled ? 'line-through text-[var(--text-secondary)]' : 'text-[var(--text-primary)]'}`}>
+                                  {/* Title (up to 2 lines) & Metadata */}
+                                  <div className="flex-1 min-w-0 space-y-1.5">
+                                    <div className="flex items-start justify-between gap-2.5">
+                                      <h4 className={`text-sm font-semibold leading-snug line-clamp-2 ${
+                                        isCancelled ? 'line-through text-[var(--text-secondary)]' : 'text-[var(--text-primary)]'
+                                      }`}>
                                         {tx.description}
-                                      </span>
+                                      </h4>
 
-                                      {/* Mode badge */}
+                                      {/* Bold Right-aligned Amount */}
+                                      <div className="text-right shrink-0">
+                                        <span 
+                                          className={`text-base sm:text-lg font-bold font-mono ${
+                                            isCancelled 
+                                              ? 'text-[var(--text-secondary)] line-through' 
+                                              : tx.type === 'expense' 
+                                              ? 'text-rose-400' 
+                                              : tx.type === 'income' 
+                                              ? 'text-emerald-400' 
+                                              : 'text-purple-400'
+                                          }`}
+                                        >
+                                          {tx.type === 'income' ? '+' : tx.type === 'expense' ? '-' : ''}${tx.amount.toFixed(2)}
+                                        </span>
+                                        {tx.type === 'transfer' && tx.fee !== undefined && tx.fee > 0 && (
+                                          <div className={`text-[10px] font-semibold font-mono text-rose-400 ${
+                                            isCancelled ? 'line-through opacity-60' : ''
+                                          }`}>
+                                            -${tx.fee.toFixed(2)} fee
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+
+                                    {/* Metadata pills row */}
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                      {/* Account pill */}
                                       {mode && (
                                         <span 
-                                          className="text-[11px] px-2 py-0.5 rounded-md font-medium flex items-center gap-1 border border-black/10 text-white"
+                                          className="text-[11px] px-2 py-0.5 rounded-md font-medium flex items-center gap-1 border border-black/10 text-white shadow-xs"
                                           style={{ backgroundColor: mode.color }}
                                         >
                                           {renderModeIcon(mode.icon, "w-3 h-3")}
-                                          {mode.name}
+                                          <span>{mode.name}</span>
                                         </span>
                                       )}
 
                                       {/* Transfer Destination Mode */}
                                       {toMode && (
                                         <span 
-                                          className="text-[11px] px-2 py-0.5 rounded-md font-medium flex items-center gap-1 border border-black/10 text-white"
+                                          className="text-[11px] px-2 py-0.5 rounded-md font-medium flex items-center gap-1 border border-black/10 text-white shadow-xs"
                                           style={{ backgroundColor: toMode.color }}
                                         >
                                           → {toMode.name}
@@ -1929,7 +2364,7 @@ export const App: React.FC = () => {
                                           title={`Linked to banner: ${banner.name}`}
                                         >
                                           <Bookmark className="w-2.5 h-2.5" />
-                                          {banner.name}
+                                          <span>{banner.name}</span>
                                         </span>
                                       ))}
 
@@ -1937,7 +2372,7 @@ export const App: React.FC = () => {
                                       {tx.recurrence && tx.recurrence !== 'none' && (
                                         <span className="text-[10px] px-2 py-0.5 rounded-md bg-purple-500/10 text-purple-400 border border-purple-500/20 font-medium flex items-center gap-1">
                                           <Repeat className="w-2.5 h-2.5" />
-                                          {formatRecurrenceLabel(tx.recurrence, tx.recurrenceDayOfWeek, tx.recurrenceDayOfMonth)}
+                                          <span>{formatRecurrenceLabel(tx.recurrence, tx.recurrenceDayOfWeek, tx.recurrenceDayOfMonth)}</span>
                                         </span>
                                       )}
 
@@ -1982,62 +2417,38 @@ export const App: React.FC = () => {
 
                                     {/* Additional notes */}
                                     {tx.notes && !/^\+?[\d.]+\$?\s*(transfer\s*)?(fee|charge)$/i.test(tx.notes.trim()) && (
-                                      <div className="flex items-center gap-3 text-xs text-[var(--text-secondary)] flex-wrap">
-                                        <span className="italic">Note: "{tx.notes}"</span>
+                                      <div className="text-xs text-[var(--text-secondary)] italic pt-0.5">
+                                        "{tx.notes}"
                                       </div>
                                     )}
-                                  </div>
-                                </div>
 
-                                {/* Right: Amount and Action Buttons */}
-                                <div className="flex items-center justify-between sm:justify-end gap-4 shrink-0 pl-11 sm:pl-0">
-                                  <div className="text-right flex flex-col items-end">
-                                    <span 
-                                      className={`text-base sm:text-lg font-bold font-mono ${
-                                        isCancelled 
-                                          ? 'text-[var(--text-secondary)] line-through' 
-                                          : tx.type === 'expense' 
-                                          ? 'text-rose-400' 
-                                          : tx.type === 'income' 
-                                          ? 'text-emerald-400' 
-                                          : 'text-purple-400'
-                                      }`}
-                                    >
-                                      {tx.type === 'income' ? '+' : tx.type === 'expense' ? '-' : ''}${tx.amount.toFixed(2)}
-                                    </span>
-                                    {tx.type === 'transfer' && tx.fee !== undefined && tx.fee > 0 && (
-                                      <span 
-                                        className={`text-xs font-semibold font-mono text-rose-400 ${
-                                          isCancelled ? 'line-through opacity-60' : ''
-                                        }`}
+                                    {/* Inline Quick Action Icons on Bottom Right */}
+                                    <div className="flex items-center justify-end gap-1 pt-1 border-t border-[var(--border-light)]/40 mt-1">
+                                      <button
+                                        type="button"
+                                        onClick={(e) => { e.stopPropagation(); handleRepeatTransaction(tx); }}
+                                        className="p-1.5 rounded-lg hover:bg-purple-500/10 text-[var(--text-secondary)] hover:text-purple-400 transition-colors cursor-pointer"
+                                        title="Repeat / Log again for today"
                                       >
-                                        -${tx.fee.toFixed(2)} fee
-                                      </span>
-                                    )}
-                                  </div>
-
-                                  <div className="flex items-center gap-1">
-                                    <button
-                                      onClick={() => handleRepeatTransaction(tx)}
-                                      className="p-1.5 rounded-lg hover:bg-purple-500/10 text-[var(--text-secondary)] hover:text-purple-400 transition-colors"
-                                      title="Repeat this expense for today"
-                                    >
-                                      <Repeat className="w-4 h-4" />
-                                    </button>
-                                    <button
-                                      onClick={() => { setEditingTx(tx); setIsTxModalOpen(true); }}
-                                      className="p-1.5 rounded-lg hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
-                                      title="Edit transaction"
-                                    >
-                                      <Edit3 className="w-4 h-4" />
-                                    </button>
-                                    <button
-                                      onClick={() => handleDeleteTransaction(tx.id)}
-                                      className="p-1.5 rounded-lg hover:bg-red-500/10 text-red-400 hover:text-red-500 transition-colors"
-                                      title="Delete transaction"
-                                    >
-                                      <Trash2 className="w-4 h-4" />
-                                    </button>
+                                        <Repeat className="w-3.5 h-3.5" />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={(e) => { e.stopPropagation(); setEditingTx(tx); setIsTxModalOpen(true); }}
+                                        className="p-1.5 rounded-lg hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors cursor-pointer"
+                                        title="Edit transaction"
+                                      >
+                                        <Edit3 className="w-3.5 h-3.5" />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={(e) => { e.stopPropagation(); handleDeleteTransaction(tx.id); }}
+                                        className="p-1.5 rounded-lg hover:bg-red-500/10 text-red-400 hover:text-red-500 transition-colors cursor-pointer"
+                                        title="Delete transaction"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                      </button>
+                                    </div>
                                   </div>
                                 </div>
                               </div>
@@ -2052,7 +2463,52 @@ export const App: React.FC = () => {
             );
           })()}
         </section>
-      </main>
+
+        {/* Vault Footer Badge */}
+        <VaultFooterBadge 
+          totalEntries={dataState.transactions.length} 
+          onClickVault={() => setIsSyncModalOpen(true)} 
+        />
+      </>
+    )}
+  </main>
+
+  {/* Fixed Bottom Navigation Bar & Center FAB (Mobile Viewport) */}
+  <BottomNavBar
+    activeTab={mobileTab}
+    onChangeTab={(tab) => {
+      setMobileTab(tab);
+      if (tab === 'analytics') {
+        setShowAnalytics(true);
+      } else {
+        setShowAnalytics(false);
+      }
+    }}
+    onOpenAddTransaction={() => {
+      setEditingTx(null);
+      setIsTxModalOpen(true);
+    }}
+    recurringDueCount={upcomingRecurring.filter(r => r.dueInfo?.isDueToday || r.dueInfo?.isOverdue).length}
+    isVisible={isBottomNavVisible}
+  />
+
+  {/* Filter Bottom-Sheet Drawer */}
+  <FilterSheetModal
+    isOpen={isFilterSheetOpen}
+    onClose={() => setIsFilterSheetOpen(false)}
+    availableMonths={availableMonths}
+    categories={dataState.categories}
+    paymentModes={dataState.paymentModes}
+    selectedMonthFilter={selectedMonthFilter}
+    onSelectMonth={setSelectedMonthFilter}
+    selectedCategoryFilter={selectedCategoryFilter}
+    onSelectCategory={setSelectedCategoryFilter}
+    selectedTypeFilter={selectedTypeFilter}
+    onSelectType={setSelectedTypeFilter}
+    selectedModeFilter={selectedModeFilter}
+    onSelectMode={setSelectedModeFilter}
+    onResetFilters={handleResetAllFilters}
+  />
 
       {/* Modals */}
       <ThemeModal
