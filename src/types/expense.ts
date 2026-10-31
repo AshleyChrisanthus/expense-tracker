@@ -7,6 +7,7 @@ export interface PaymentMode {
   icon: string; // e.g. 'landmark', 'credit-card', 'banknote', 'wallet', 'coins', 'smartphone'
   color: string; // hex color for badge
   isSystem?: boolean;
+  updatedAt?: number;
 }
 
 export interface Banner {
@@ -14,6 +15,7 @@ export interface Banner {
   name: string;
   color: string; // Hex color for banner tag and connecting line
   createdAt: number;
+  updatedAt?: number;
 }
 
 export interface Transaction {
@@ -36,6 +38,7 @@ export interface Transaction {
   descriptionTemplate?: string; // Optional template with {amount} placeholder (e.g. "paid {amount}$ weekly company salary to bank account")
   bannerIds?: string[]; // IDs of banners/groups this transaction belongs to
   createdAt: number;
+  updatedAt?: number;
 }
 
 export interface ExpenseDataState {

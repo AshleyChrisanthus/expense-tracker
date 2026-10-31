@@ -103,6 +103,14 @@ export async function getStorageModule() {
   return await import('../../src/utils/storage.js');
 }
 
+export async function getSyncModules() {
+  const crypto = await import('../../src/services/sync/crypto.ts');
+  const merger = await import('../../src/services/sync/merger.ts');
+  const qr = await import('../../src/services/sync/qr.ts');
+  const syncManager = await import('../../src/services/sync/sync-manager.ts');
+  return { ...crypto, ...merger, ...qr, ...syncManager };
+}
+
 // Reset database tables and state between tests
 export async function resetDatabase() {
   const { db } = await getDbModule();

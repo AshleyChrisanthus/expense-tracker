@@ -28,7 +28,8 @@ import {
   CheckSquare,
   GitCommit,
   ChevronDown,
-  BarChart3
+  BarChart3,
+  Cloud
 } from 'lucide-react';
 
 import { ThemeMode } from './types/theme';
@@ -42,6 +43,9 @@ import { CategoriesModal } from './components/CategoriesModal';
 import { BannersModal } from './components/BannersModal';
 import { ImportExportModal } from './components/ImportExportModal';
 import { VisualAnalytics } from './components/VisualAnalytics';
+import { SyncModal } from './components/SyncModal';
+import { syncManager } from './services/sync/sync-manager';
+import type { SyncStatus } from './services/sync/types';
 import { db } from './db';
 import { 
   getRecurrenceDueInfo, 
@@ -71,6 +75,8 @@ export const App: React.FC = () => {
   const [isCategoriesModalOpen, setIsCategoriesModalOpen] = useState(false);
   const [isBannersModalOpen, setIsBannersModalOpen] = useState(false);
   const [isImportExportOpen, setIsImportExportOpen] = useState(false);
+  const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>(() => syncManager.getStatus());
   const [showAnalytics, setShowAnalytics] = useState(false);
 
   // Filters & Search
@@ -114,16 +120,50 @@ export const App: React.FC = () => {
     }
   }, []);
 
-  // Load from Dexie on mount
+  // Sync manager integration & URL hash pairing (#sync=v1:...)
+  useEffect(() => {
+    syncManager.setStateProvider(() => dataState);
+  }, [dataState]);
+
+  useEffect(() => {
+    const unsubStatus = syncManager.onStatusChange((s) => {
+      setSyncStatus(s);
+    });
+
+    const unsubState = syncManager.onStateChange((newState) => {
+      setDataState(newState);
+    });
+
+    // Check URL fragment for pairing
+    const didPair = syncManager.checkUrlHashForPairing();
+    if (didPair) {
+      setToastMessage('Paired with cloud vault! Synchronizing...');
+      setTimeout(() => setToastMessage(null), 3500);
+    }
+
+    return () => {
+      unsubStatus();
+      unsubState();
+    };
+  }, []);
+
+  // Load from Dexie on mount and perform initial sync
   useEffect(() => {
     db.initDatabase().then(initResult => {
-      setDataState({
+      const initial = {
         version: 1,
         transactions: initResult.transactions,
         paymentModes: initResult.paymentModes,
         categories: initResult.categories,
         banners: initResult.banners
-      });
+      };
+      setDataState(initial);
+
+      if (syncManager.isConfigured()) {
+        syncManager.syncNow().catch((err) => {
+          console.warn('[Sync] Initial auto-sync error:', err);
+        });
+      }
     }).catch(err => {
       console.warn('Dexie IndexedDB initialization fallback:', err);
     });
@@ -155,20 +195,25 @@ export const App: React.FC = () => {
 
   // Transaction CRUD handlers
   const handleSaveTransaction = async (transaction: Transaction) => {
+    const txToSave: Transaction = {
+      ...transaction,
+      updatedAt: transaction.updatedAt || Date.now()
+    };
+
     try {
-      await db.putTransaction(transaction);
+      await db.putTransaction(txToSave);
     } catch (e) {
       console.error('Dexie save transaction failed:', e);
     }
 
     setDataState(prev => {
-      const exists = prev.transactions.some(t => t.id === transaction.id);
+      const exists = prev.transactions.some(t => t.id === txToSave.id);
       const newTransactions = exists
-        ? prev.transactions.map(t => t.id === transaction.id ? transaction : t)
-        : [transaction, ...prev.transactions];
+        ? prev.transactions.map(t => t.id === txToSave.id ? txToSave : t)
+        : [txToSave, ...prev.transactions];
 
-      const newCategories = transaction.category && !prev.categories.includes(transaction.category)
-        ? [...prev.categories, transaction.category]
+      const newCategories = txToSave.category && !prev.categories.includes(txToSave.category)
+        ? [...prev.categories, txToSave.category]
         : prev.categories;
 
       return {
@@ -177,6 +222,8 @@ export const App: React.FC = () => {
         categories: newCategories
       };
     });
+
+    syncManager.schedulePush();
   };
 
   const handleDeleteTransaction = async (id: string) => {
@@ -186,6 +233,8 @@ export const App: React.FC = () => {
       } catch (e) {
         console.error('Dexie delete transaction failed:', e);
       }
+
+      syncManager.recordDeletion(id, 'transaction');
 
       setDataState(prev => ({
         ...prev,
@@ -304,16 +353,21 @@ export const App: React.FC = () => {
   };
 
   const handleSavePaymentModes = async (modes: PaymentMode[]) => {
+    const modesWithTime = modes.map(m => ({
+      ...m,
+      updatedAt: m.updatedAt || Date.now()
+    }));
     try {
-      await db.savePaymentModes(modes);
+      await db.savePaymentModes(modesWithTime);
     } catch (e) {
       console.error('Dexie save modes failed:', e);
     }
 
     setDataState(prev => ({
       ...prev,
-      paymentModes: modes
+      paymentModes: modesWithTime
     }));
+    syncManager.schedulePush();
   };
 
   const handleSaveCategories = async (newCategories: string[]) => {
@@ -327,6 +381,7 @@ export const App: React.FC = () => {
       ...prev,
       categories: newCategories
     }));
+    syncManager.schedulePush();
   };
 
   const handleRenameCategory = async (oldName: string, newName: string) => {
@@ -338,27 +393,33 @@ export const App: React.FC = () => {
 
     setDataState(prev => {
       const updatedCategories = prev.categories.map(c => c === oldName ? newName : c);
-      const updatedTransactions = prev.transactions.map(t => t.category === oldName ? { ...t, category: newName } : t);
+      const updatedTransactions = prev.transactions.map(t => t.category === oldName ? { ...t, category: newName, updatedAt: Date.now() } : t);
       return {
         ...prev,
         categories: updatedCategories,
         transactions: updatedTransactions
       };
     });
+    syncManager.schedulePush();
   };
 
   // Banner CRUD handlers
   const handleSaveBanners = async (banners: Banner[]) => {
+    const bannersWithTime = banners.map(b => ({
+      ...b,
+      updatedAt: b.updatedAt || Date.now()
+    }));
     try {
-      await db.saveBanners(banners);
+      await db.saveBanners(bannersWithTime);
     } catch (e) {
       console.error('Dexie save banners failed:', e);
     }
 
     setDataState(prev => ({
       ...prev,
-      banners
+      banners: bannersWithTime
     }));
+    syncManager.schedulePush();
   };
 
   const handleDeleteBanner = async (bannerId: string) => {
@@ -368,12 +429,14 @@ export const App: React.FC = () => {
       console.error('Dexie delete banner failed:', e);
     }
 
+    syncManager.recordDeletion(bannerId, 'banner');
+
     setDataState(prev => ({
       ...prev,
       banners: (prev.banners || []).filter(b => b.id !== bannerId),
       transactions: prev.transactions.map(t => 
         t.bannerIds && t.bannerIds.includes(bannerId)
-          ? { ...t, bannerIds: t.bannerIds.filter(id => id !== bannerId) }
+          ? { ...t, bannerIds: t.bannerIds.filter(id => id !== bannerId), updatedAt: Date.now() }
           : t
       )
     }));
@@ -436,6 +499,8 @@ export const App: React.FC = () => {
       transactions: updatedTransactions
     }));
 
+    syncManager.schedulePush();
+
     setToastMessage(`Added ${selectedTxIds.size} transaction(s) to "${bannerObj?.name || 'Banner'}"`);
     setTimeout(() => setToastMessage(null), 3000);
     setSelectedTxIds(new Set());
@@ -449,7 +514,8 @@ export const App: React.FC = () => {
       if (selectedTxIds.has(tx.id) && tx.bannerIds) {
         return {
           ...tx,
-          bannerIds: tx.bannerIds.filter(id => id !== bannerId)
+          bannerIds: tx.bannerIds.filter(id => id !== bannerId),
+          updatedAt: Date.now()
         };
       }
       return tx;
@@ -470,6 +536,8 @@ export const App: React.FC = () => {
       transactions: updatedTransactions
     }));
 
+    syncManager.schedulePush();
+
     setToastMessage(`Removed ${selectedTxIds.size} transaction(s) from "${bannerObj?.name || 'Banner'}"`);
     setTimeout(() => setToastMessage(null), 3000);
     setSelectedTxIds(new Set());
@@ -482,6 +550,7 @@ export const App: React.FC = () => {
       console.error('Dexie import failed:', e);
     }
     setDataState(newState);
+    syncManager.schedulePush();
   };
 
   // Available months from data for filter dropdown
@@ -820,6 +889,36 @@ export const App: React.FC = () => {
             >
               <FileJson className="w-4 h-4 text-emerald-400" />
               <span className="hidden lg:inline">JSON & Backup</span>
+            </button>
+
+            {/* Live E2EE Cloud Sync Status Badge */}
+            <button
+              onClick={() => setIsSyncModalOpen(true)}
+              className={`apple-btn text-xs sm:text-sm font-medium transition-all flex items-center gap-1.5 ${
+                syncStatus.state === 'synced'
+                  ? 'border-cyan-500/40 bg-cyan-500/10 text-cyan-400 hover:bg-cyan-500/20 shadow-sm'
+                  : syncStatus.state === 'syncing'
+                  ? 'border-amber-500/40 bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 animate-pulse'
+                  : syncStatus.state === 'offline'
+                  ? 'border-gray-500/40 bg-gray-500/10 text-gray-400'
+                  : syncStatus.state === 'error'
+                  ? 'border-rose-500/40 bg-rose-500/10 text-rose-400 hover:bg-rose-500/20'
+                  : 'apple-btn-secondary text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+              }`}
+              title={
+                syncStatus.state === 'synced' ? 'E2EE Cloud Sync: Active & Synced' :
+                syncStatus.state === 'syncing' ? 'E2EE Cloud Sync: Synchronizing...' :
+                syncStatus.state === 'offline' ? 'E2EE Cloud Sync: Offline' :
+                syncStatus.state === 'error' ? 'E2EE Cloud Sync: Error' : 'Configure E2EE Cloud Sync'
+              }
+            >
+              <Cloud className={`w-4 h-4 ${syncStatus.state === 'syncing' ? 'animate-spin text-amber-400' : syncStatus.state === 'synced' ? 'text-cyan-400' : ''}`} />
+              <span className="hidden md:inline font-mono text-xs">
+                {syncStatus.state === 'synced' ? 'Synced' :
+                 syncStatus.state === 'syncing' ? 'Syncing...' :
+                 syncStatus.state === 'offline' ? 'Offline' :
+                 syncStatus.state === 'error' ? 'Sync Error' : 'Sync'}
+              </span>
             </button>
 
             <button
@@ -2005,6 +2104,11 @@ export const App: React.FC = () => {
         onUpdateState={handleUpdateDataState}
         initialTab={sharedKeepText ? 'keep' : undefined}
         initialKeepText={sharedKeepText || undefined}
+      />
+
+      <SyncModal
+        isOpen={isSyncModalOpen}
+        onClose={() => setIsSyncModalOpen(false)}
       />
 
       {/* Toast Notification */}
