@@ -19,9 +19,18 @@ function getApiKey() {
   return null;
 }
 
-export async function deploy(targetSlug = 'expense-tracker-vault') {
+export async function deploy(requestedSlug) {
   const rootDir = path.resolve(__dirname, '..');
+  const siteConfigPath = path.resolve(rootDir, '.herenow-site.json');
   
+  let targetSlug = requestedSlug;
+  if (!targetSlug && fs.existsSync(siteConfigPath)) {
+    try {
+      const saved = JSON.parse(fs.readFileSync(siteConfigPath, 'utf8'));
+      if (saved && saved.slug) targetSlug = saved.slug;
+    } catch (_) {}
+  }
+
   // Ensure cache busting is updated
   updateCacheBusting(rootDir);
 
@@ -34,6 +43,7 @@ export async function deploy(targetSlug = 'expense-tracker-vault') {
     { path: 'icons/icon-512.png', contentType: 'image/png' },
     { path: 'icons/icon-512-maskable.png', contentType: 'image/png' },
     { path: 'icons/apple-touch-icon.png', contentType: 'image/png' },
+    { path: 'favicon-32.png', contentType: 'image/png' },
     { path: 'icons/favicon-32.png', contentType: 'image/png' }
   ];
 
@@ -47,6 +57,8 @@ export async function deploy(targetSlug = 'expense-tracker-vault') {
       if (fs.existsSync(publicPath)) {
         filePath = publicPath;
       } else {
+        // Skip optional favicon at root if in icons/
+        if (def.path === 'favicon-32.png') continue;
         throw new Error(`Deployment asset missing: ${def.path}`);
       }
     }
@@ -69,21 +81,32 @@ export async function deploy(targetSlug = 'expense-tracker-vault') {
     headers['Authorization'] = `Bearer ${apiKey}`;
   }
 
-  const endpoint = targetSlug
-    ? `https://here.now/api/v1/publish/${targetSlug}`
-    : 'https://here.now/api/v1/publish';
-  const method = targetSlug ? 'PUT' : 'POST';
+  let initRes;
+  if (targetSlug) {
+    console.log(`Checking existing site on here.now: ${targetSlug}...`);
+    initRes = await fetch(`https://here.now/api/v1/publish/${targetSlug}`, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify({
+        files: filesPayload,
+        displayName: 'Glassmorphic Expense Tracker',
+        displayDescription: 'Personal finance tracker with offline PWA & E2EE zero-knowledge cloud sync'
+      })
+    });
+  }
 
-  console.log(`Deploying to here.now (${targetSlug ? 'Updating ' + targetSlug : 'Creating new site'})...`);
-  const initRes = await fetch(endpoint, {
-    method,
-    headers,
-    body: JSON.stringify({
-      files: filesPayload,
-      displayName: 'Glassmorphic Expense Tracker',
-      displayDescription: 'Personal finance tracker with offline PWA & E2EE zero-knowledge cloud sync'
-    })
-  });
+  if (!initRes || initRes.status === 404) {
+    console.log('Creating new site on here.now...');
+    initRes = await fetch('https://here.now/api/v1/publish', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        files: filesPayload,
+        displayName: 'Glassmorphic Expense Tracker',
+        displayDescription: 'Personal finance tracker with offline PWA & E2EE zero-knowledge cloud sync'
+      })
+    });
+  }
 
   if (!initRes.ok) {
     const errText = await initRes.text();
@@ -142,6 +165,14 @@ export async function deploy(targetSlug = 'expense-tracker-vault') {
     const finErr = await finalizeRes.text();
     throw new Error(`Finalize failed: ${finErr}`);
   }
+
+  // Save site info for future updates
+  fs.writeFileSync(siteConfigPath, JSON.stringify({
+    slug: initData.slug,
+    siteUrl: initData.siteUrl,
+    versionId: uploadPlan.versionId,
+    deployedAt: new Date().toISOString()
+  }, null, 2), 'utf8');
 
   console.log('\n=============================================');
   console.log('🚀 LIVE PWA DEPLOYED SUCCESSFULLY!');

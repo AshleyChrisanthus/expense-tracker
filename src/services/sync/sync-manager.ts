@@ -21,7 +21,7 @@ const CONFIG_STORAGE_KEY = 'expense_tracker_sync_config_v1';
 const TOMBSTONES_STORAGE_KEY = 'expense_tracker_sync_tombstones_v1';
 const DEVICE_ID_KEY = 'expense_tracker_device_id_v1';
 
-export const CANONICAL_HOSTED_URL = 'https://expense-tracker-vault.here.now';
+export const CANONICAL_HOSTED_URL = 'https://waxen-acorn-7854.here.now';
 
 export class SyncManager {
   private config: SyncConfig | null = null;
