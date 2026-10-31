@@ -45,12 +45,20 @@ export const DEFAULT_CATEGORIES = [
 
 export const INITIAL_TRANSACTIONS: Transaction[] = [];
 
+export function ensureDefaultRecurringTemplates(_transactions: Transaction[]): Transaction[] {
+  return [];
+}
+
 export function loadExpenseData(): ExpenseDataState {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
       if (parsed && Array.isArray(parsed.transactions) && Array.isArray(parsed.paymentModes)) {
+        const modified = ensureDefaultRecurringTemplates(parsed.transactions);
+        if (modified.length > 0) {
+          saveExpenseData(parsed);
+        }
         return parsed;
       }
     }
@@ -172,7 +180,7 @@ export function parseGoogleKeepText(text: string, currentModes: PaymentMode[]): 
       let category = 'Other';
       const descLower = desc.toLowerCase();
       if (descLower.includes('rent')) category = 'Rent & Housing';
-      else if (descLower.includes('grocery') || descLower.includes('aldi') || descLower.includes('coles') || descLower.includes('wolworths')) category = 'Groceries';
+      else if (descLower.includes('grocery') || descLower.includes('aldi') || descLower.includes('coles') || descLower.includes('woolworths') || descLower.includes('wolworths')) category = 'Groceries';
       else if (descLower.includes('coffee') || descLower.includes('kfc') || descLower.includes('lunch') || descLower.includes('burger')) category = 'Food & Dining';
       else if (descLower.includes('transport') || descLower.includes('myki')) category = 'Transport';
 

@@ -41,17 +41,21 @@ interface ImportExportModalProps {
   onClose: () => void;
   currentState: ExpenseDataState;
   onUpdateState: (newState: ExpenseDataState) => void;
+  initialTab?: 'json' | 'keep' | 'danger';
+  initialKeepText?: string;
 }
 
 export const ImportExportModal: React.FC<ImportExportModalProps> = ({
   isOpen,
   onClose,
   currentState,
-  onUpdateState
+  onUpdateState,
+  initialTab,
+  initialKeepText
 }) => {
-  const [activeTab, setActiveTab] = useState<'json' | 'keep' | 'danger'>('json');
+  const [activeTab, setActiveTab] = useState<'json' | 'keep' | 'danger'>(initialTab || 'json');
   const [importMode, setImportMode] = useState<'replace' | 'merge'>('merge');
-  const [keepText, setKeepText] = useState('');
+  const [keepText, setKeepText] = useState(initialKeepText || '');
   const [parsedPreview, setParsedPreview] = useState<Partial<Transaction>[]>([]);
   const [importStatus, setImportStatus] = useState<string | null>(null);
 
@@ -63,8 +67,14 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
   useEffect(() => {
     if (isOpen) {
       loadLinkedFolderStatus();
+      if (initialTab) {
+        setActiveTab(initialTab);
+      }
+      if (initialKeepText) {
+        handleParseKeep(initialKeepText);
+      }
     }
-  }, [isOpen]);
+  }, [isOpen, initialTab, initialKeepText]);
 
   const loadLinkedFolderStatus = async () => {
     try {

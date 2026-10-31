@@ -1,4 +1,4 @@
-import { RecurrenceRule } from '../types/expense';
+import type { RecurrenceRule } from '../types/expense';
 
 export const WEEKDAYS = [
   { value: 0, label: 'Sunday', short: 'Sun' },
@@ -29,7 +29,7 @@ export function computeNextDueDate(
   dayOfWeek?: number, 
   dayOfMonth?: number
 ): string {
-  if (!rule || rule === 'none') return baseDateStr;
+  if (!rule || rule === 'none' || rule === 'as_needed') return baseDateStr;
 
   const [year, month, day] = baseDateStr.split('-').map(Number);
   const d = new Date(year, month - 1, day);
@@ -94,7 +94,7 @@ export function calculateInitialDueDate(
   dayOfWeek?: number,
   dayOfMonth?: number
 ): string {
-  if (!rule || rule === 'none') return baseDateStr;
+  if (!rule || rule === 'none' || rule === 'as_needed') return baseDateStr;
 
   const [year, month, day] = baseDateStr.split('-').map(Number);
   const d = new Date(year, month - 1, day);
@@ -136,7 +136,7 @@ export function getNextFutureDueDate(
   dayOfWeek?: number, 
   dayOfMonth?: number
 ): string {
-  if (!rule || rule === 'none') return baseDateStr;
+  if (!rule || rule === 'none' || rule === 'as_needed') return baseDateStr;
   const todayStr = new Date().toISOString().split('T')[0];
   let cur = baseDateStr;
   let count = 0;
@@ -149,10 +149,10 @@ export function getNextFutureDueDate(
   return cur;
 }
 
-export function getRecurrenceDueInfo(dueDateStr?: string) {
+export function getRecurrenceDueInfo(dueDateStr?: string, referenceDateStr?: string) {
   if (!dueDateStr) return null;
 
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = referenceDateStr || new Date().toISOString().split('T')[0];
   const [tY, tM, tD] = todayStr.split('-').map(Number);
   const [dY, dM, dD] = dueDateStr.split('-').map(Number);
 
@@ -195,7 +195,91 @@ export function formatRecurrenceLabel(
       return dayOfMonth !== undefined
         ? `Yearly on ${getOrdinalSuffix(dayOfMonth)}`
         : 'Yearly';
+    case 'as_needed':
+      return 'As Needed (No Fixed Schedule)';
     default:
       return 'Does not repeat';
   }
+}
+
+/**
+ * Checks whether a description or template contains an embedded amount placeholder ({amount})
+ * or dollar amount pattern (e.g. "paid 783.27$ weekly company salary to bank account").
+ */
+export function hasEmbeddedAmountTemplate(text?: string): boolean {
+  if (!text) return false;
+  if (text.includes('{amount}')) return true;
+  return /(?:^|\s)\d+(?:\.\d+)?\$|\$\d+(?:\.\d+)?(?:\s|$)/i.test(text);
+}
+
+/**
+ * Converts a description with an embedded dollar amount into a reusable {amount} template.
+ * e.g. "paid 783.27$ weekly company salary to bank account"
+ *   -> "paid {amount}$ weekly company salary to bank account"
+ */
+export function extractDescriptionTemplate(description: string): string | undefined {
+  if (!description) return undefined;
+  if (description.includes('{amount}')) return description;
+  if (/(?:^|\s)\d+(?:\.\d+)?\$/i.test(description)) {
+    return description.replace(/(\d+(?:\.\d+)?)(\$)/, '{amount}$2');
+  }
+  if (/\$\d+(?:\.\d+)?/i.test(description)) {
+    return description.replace(/(\$)(\d+(?:\.\d+)?)/, '$1{amount}');
+  }
+  return undefined;
+}
+
+/**
+ * Extracts a numeric amount string from a description containing a dollar figure.
+ * e.g. "paid 783.27$ weekly company salary to bank account" -> "783.27"
+ */
+export function extractAmountFromDescription(description: string): string | null {
+  if (!description) return null;
+  const matchAfter = description.match(/(?:^|\s)(\d+(?:\.\d+)?)\$/);
+  if (matchAfter) return matchAfter[1];
+  const matchBefore = description.match(/\$(\d+(?:\.\d+)?)(?:\s|$)/);
+  if (matchBefore) return matchBefore[1];
+  return null;
+}
+
+/**
+ * Populates a templated description (or description with an embedded dollar figure)
+ * with the provided amount. Leaves non-templated descriptions (e.g. "paid to family") untouched.
+ */
+export function formatTemplatedDescription(
+  templateOrDescription: string,
+  amountInput: string | number,
+  fallbackAmount?: number | string
+): string {
+  if (!templateOrDescription) return '';
+  const rawInput = typeof amountInput === 'number' ? String(amountInput) : amountInput.trim();
+  const replacement = rawInput !== ''
+    ? rawInput
+    : (fallbackAmount !== undefined && fallbackAmount !== '' ? String(fallbackAmount) : '{amount}');
+
+  if (templateOrDescription.includes('{amount}')) {
+    return templateOrDescription.replace(/\{amount\}/g, replacement);
+  }
+
+  if (/(?:^|\s)\d+(?:\.\d+)?\$/i.test(templateOrDescription)) {
+    return templateOrDescription.replace(/(\d+(?:\.\d+)?)(\$)/, `${replacement}$2`);
+  }
+
+  if (/\$\d+(?:\.\d+)?/i.test(templateOrDescription)) {
+    return templateOrDescription.replace(/(\$)(\d+(?:\.\d+)?)/, `$1${replacement}`);
+  }
+
+  return templateOrDescription;
+}
+
+/**
+ * Normalizes a transaction description/template into a stable group key for recurring matching
+ * so variable-amount entries (e.g. "paid 783.27$ salary group..." and "paid 835.12$ salary group...")
+ * map to the same recurring series.
+ */
+export function normalizeRecurringKey(description: string, descriptionTemplate?: string): string {
+  const source = (descriptionTemplate || description || '').trim();
+  if (!source) return '';
+  const templated = extractDescriptionTemplate(source) || source;
+  return templated.trim().toLowerCase();
 }

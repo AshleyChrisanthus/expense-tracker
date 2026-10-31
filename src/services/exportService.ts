@@ -1,5 +1,5 @@
 import { db } from '../db';
-import { ExpenseDataState } from '../types/expense';
+import type { ExpenseDataState } from '../types/expense';
 
 const BACKUP_DIR_SETTING_KEY = 'backup_directory_handle';
 

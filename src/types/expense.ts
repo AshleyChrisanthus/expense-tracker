@@ -1,5 +1,5 @@
 export type TransactionType = 'expense' | 'income' | 'transfer';
-export type RecurrenceRule = 'none' | 'daily' | 'weekly' | 'biweekly' | 'monthly' | 'yearly';
+export type RecurrenceRule = 'none' | 'daily' | 'weekly' | 'biweekly' | 'monthly' | 'yearly' | 'as_needed';
 
 export interface PaymentMode {
   id: string;
@@ -32,6 +32,8 @@ export interface Transaction {
   recurrenceDayOfWeek?: number; // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
   recurrenceDayOfMonth?: number; // 1 to 31
   nextDueDate?: string; // YYYY-MM-DD
+  isVariableAmount?: boolean; // True when amount changes every time (e.g. casual salary or flexible payment)
+  descriptionTemplate?: string; // Optional template with {amount} placeholder (e.g. "paid {amount}$ weekly company salary to bank account")
   bannerIds?: string[]; // IDs of banners/groups this transaction belongs to
   createdAt: number;
 }

@@ -17,7 +17,11 @@ import { Transaction, TransactionType, PaymentMode, RecurrenceRule, Banner } fro
 import { 
   calculateInitialDueDate, 
   WEEKDAYS, 
-  getOrdinalSuffix 
+  getOrdinalSuffix,
+  hasEmbeddedAmountTemplate,
+  extractDescriptionTemplate,
+  extractAmountFromDescription,
+  formatTemplatedDescription
 } from '../utils/recurrence';
 
 interface TransactionModalProps {
@@ -57,6 +61,8 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
   const [recurrence, setRecurrence] = useState<RecurrenceRule>('none');
   const [recurrenceDayOfWeek, setRecurrenceDayOfWeek] = useState<number>(0);
   const [recurrenceDayOfMonth, setRecurrenceDayOfMonth] = useState<number>(1);
+  const [isVariableAmount, setIsVariableAmount] = useState<boolean>(false);
+  const [descriptionTemplate, setDescriptionTemplate] = useState<string>('');
   const [selectedBannerIds, setSelectedBannerIds] = useState<string[]>([]);
 
   useEffect(() => {
@@ -79,6 +85,13 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
       setNotes(initialTransaction.notes || '');
       setStatus(initialTransaction.status || 'completed');
       setRecurrence(initialTransaction.recurrence || 'none');
+      const inferredTemplate = initialTransaction.descriptionTemplate || extractDescriptionTemplate(initialTransaction.description) || '';
+      setDescriptionTemplate(inferredTemplate);
+      setIsVariableAmount(
+        Boolean(initialTransaction.isVariableAmount) ||
+        initialTransaction.recurrence === 'as_needed' ||
+        Boolean(inferredTemplate)
+      );
 
       // Set initial day of week and day of month
       if (initialTransaction.recurrenceDayOfWeek !== undefined) {
@@ -112,6 +125,8 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
       setNotes('');
       setStatus('completed');
       setRecurrence('none');
+      setIsVariableAmount(false);
+      setDescriptionTemplate('');
       setSelectedBannerIds([]);
       
       const now = new Date();
@@ -140,6 +155,58 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
     );
   };
 
+  // Sync amount -> templated description when amount changes
+  const handleAmountChange = (newAmount: string) => {
+    setAmount(newAmount);
+    const activeTemplate = descriptionTemplate || (hasEmbeddedAmountTemplate(description) ? extractDescriptionTemplate(description) : undefined);
+    if (activeTemplate) {
+      if (!descriptionTemplate) {
+        setDescriptionTemplate(activeTemplate);
+      }
+      setDescription(formatTemplatedDescription(activeTemplate, newAmount));
+    }
+  };
+
+  // Sync description -> amount & template when description contains embedded $ figure or {amount}
+  const handleDescriptionChange = (newDesc: string) => {
+    setDescription(newDesc);
+    if (newDesc.includes('{amount}')) {
+      setDescriptionTemplate(newDesc);
+      setIsVariableAmount(true);
+    } else if (hasEmbeddedAmountTemplate(newDesc)) {
+      const tpl = extractDescriptionTemplate(newDesc);
+      if (tpl) setDescriptionTemplate(tpl);
+      const extractedAmt = extractAmountFromDescription(newDesc);
+      if (extractedAmt !== null) {
+        setAmount(extractedAmt);
+      }
+    } else {
+      setDescriptionTemplate('');
+    }
+  };
+
+  const applyPresetTemplate = (preset: 'weekly_salary' | 'on_demand_expense') => {
+    if (preset === 'weekly_salary') {
+      const tpl = 'paid {amount}$ weekly company salary to bank account';
+      setType('income');
+      setPaymentModeId('bank');
+      setCategory(categories.includes('Income') ? 'Income' : categories[0] || 'Income');
+      setRecurrence('weekly');
+      setRecurrenceDayOfWeek(3); // Wednesday
+      setIsVariableAmount(true);
+      setDescriptionTemplate(tpl);
+      setDescription(formatTemplatedDescription(tpl, amount));
+    } else if (preset === 'on_demand_expense') {
+      setType('expense');
+      setPaymentModeId('bank');
+      setCategory(categories.includes('Other') ? 'Other' : categories[0] || 'Other');
+      setRecurrence('as_needed');
+      setIsVariableAmount(true);
+      setDescriptionTemplate('');
+      setDescription('paid to family');
+    }
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const parsedAmount = parseFloat(amount);
@@ -151,8 +218,9 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
 
     const isWeekCycle = recurrence === 'weekly' || recurrence === 'biweekly';
     const isMonthCycle = recurrence === 'monthly';
+    const isScheduledRecurrence = recurrence && recurrence !== 'none' && recurrence !== 'as_needed';
 
-    const nextDueDate = (recurrence && recurrence !== 'none')
+    const nextDueDate = isScheduledRecurrence
       ? (initialTransaction?.nextDueDate || calculateInitialDueDate(
           date, 
           recurrence, 
@@ -160,6 +228,11 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
           isMonthCycle ? recurrenceDayOfMonth : undefined
         ))
       : undefined;
+
+    const activeTemplate = descriptionTemplate || (hasEmbeddedAmountTemplate(description) ? extractDescriptionTemplate(description) : undefined);
+    const resolvedDescription = activeTemplate
+      ? formatTemplatedDescription(activeTemplate, amount, parsedAmount)
+      : (description.trim() || (type === 'transfer' ? `Transfer to ${modes.find(m => m.id === toPaymentModeId)?.name || 'Account'}` : 'Expense'));
 
     const transaction: Transaction = {
       id: initialTransaction ? initialTransaction.id : 'tx-' + Date.now(),
@@ -170,13 +243,15 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
       toPaymentModeId: type === 'transfer' ? toPaymentModeId : undefined,
       fee: type === 'transfer' && fee ? parseFloat(fee) : undefined,
       category: finalCategory,
-      description: description.trim() || (type === 'transfer' ? `Transfer to ${modes.find(m => m.id === toPaymentModeId)?.name || 'Account'}` : 'Expense'),
+      description: resolvedDescription,
       notes: notes.trim() || undefined,
       status,
       recurrence: recurrence !== 'none' ? recurrence : undefined,
       recurrenceDayOfWeek: isWeekCycle ? recurrenceDayOfWeek : undefined,
       recurrenceDayOfMonth: isMonthCycle ? recurrenceDayOfMonth : undefined,
       nextDueDate,
+      isVariableAmount: recurrence !== 'none' ? (isVariableAmount || recurrence === 'as_needed' || Boolean(activeTemplate)) : undefined,
+      descriptionTemplate: activeTemplate || undefined,
       bannerIds: selectedBannerIds.length > 0 ? selectedBannerIds : undefined,
       createdAt: initialTransaction ? initialTransaction.createdAt : Date.now()
     };
@@ -263,7 +338,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                   required
                   autoFocus
                   value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
+                  onChange={(e) => handleAmountChange(e.target.value)}
                   placeholder="0.00"
                   className="apple-input apple-input-with-icon pl-9 text-base font-semibold"
                 />
@@ -421,18 +496,43 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
             </div>
           )}
 
-          <div>
-            <label className="block text-xs font-medium text-[var(--text-secondary)] mb-1">
-              Description / Payee (e.g. room rent, aldi grocery, coles)
-            </label>
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between flex-wrap gap-1">
+              <label className="block text-xs font-medium text-[var(--text-secondary)]">
+                Description / Payee (e.g. room rent, aldi grocery, coles)
+              </label>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => applyPresetTemplate('weekly_salary')}
+                  className="text-[10px] px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/25 transition-colors font-medium"
+                  title="Fill template: paid {amount}$ weekly company salary to bank account (Weekly Wednesday Income)"
+                >
+                  + Weekly Salary Template
+                </button>
+                <button
+                  type="button"
+                  onClick={() => applyPresetTemplate('on_demand_expense')}
+                  className="text-[10px] px-2 py-0.5 rounded-md bg-purple-500/15 text-purple-400 border border-purple-500/30 hover:bg-purple-500/25 transition-colors font-medium"
+                  title="Fill template: paid to family (As Needed / Flexible Recurring Expense)"
+                >
+                  + paid to family Template
+                </button>
+              </div>
+            </div>
             <input
               type="text"
               required
               value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="e.g. coles grocery, room rent, convenience store coffee"
+              onChange={(e) => handleDescriptionChange(e.target.value)}
+              placeholder="e.g. paid 783.27$ weekly company salary to bank account, paid to family"
               className="apple-input text-xs"
             />
+            {(descriptionTemplate || hasEmbeddedAmountTemplate(description)) && (
+              <p className="text-[11px] text-emerald-400 flex items-center gap-1">
+                <span>✦ Dynamic amount template active: typing in Amount ($) automatically updates the number in Description.</span>
+              </p>
+            )}
           </div>
 
           {/* Recurrence & Status */}
@@ -443,15 +543,22 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
               </label>
               <select
                 value={recurrence}
-                onChange={(e) => setRecurrence(e.target.value as RecurrenceRule)}
+                onChange={(e) => {
+                  const nextRule = e.target.value as RecurrenceRule;
+                  setRecurrence(nextRule);
+                  if (nextRule === 'as_needed') {
+                    setIsVariableAmount(true);
+                  }
+                }}
                 className="apple-input text-xs"
               >
                 <option value="none">One-time (Does not repeat)</option>
-                <option value="weekly">Weekly (e.g. Every Sunday)</option>
+                <option value="weekly">Weekly (e.g. Every Wednesday / Sunday)</option>
                 <option value="biweekly">Every 2 Weeks (Bi-weekly)</option>
                 <option value="monthly">Monthly (e.g. 2nd of every month)</option>
                 <option value="yearly">Yearly (Annual bills)</option>
                 <option value="daily">Daily</option>
+                <option value="as_needed">As Needed / No Fixed Schedule (Template)</option>
               </select>
             </div>
 
@@ -470,6 +577,28 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
               </select>
             </div>
           </div>
+
+          {/* Variable Amount & As-Needed Options */}
+          {recurrence !== 'none' && (
+            <div className="p-3 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-light)] space-y-2">
+              <label className="flex items-center justify-between gap-2 cursor-pointer text-xs">
+                <span className="font-medium text-[var(--text-primary)]">
+                  Variable amount each time (enter amount when logging reminder)
+                </span>
+                <input
+                  type="checkbox"
+                  checked={isVariableAmount || recurrence === 'as_needed' || Boolean(descriptionTemplate)}
+                  onChange={(e) => setIsVariableAmount(e.target.checked)}
+                  className="rounded accent-purple-500 w-4 h-4"
+                />
+              </label>
+              {recurrence === 'as_needed' && (
+                <p className="text-[11px] text-[var(--text-secondary)]">
+                  <strong className="text-purple-400">On-Demand Template:</strong> This item has no fixed timetable and will stay in your Recurring Reminders banner so you can type in the amount and log it whenever needed.
+                </p>
+              )}
+            </div>
+          )}
 
           {/* Weekday Customization for Weekly & Bi-weekly */}
           {(recurrence === 'weekly' || recurrence === 'biweekly') && (

@@ -47,7 +47,11 @@ import {
   getRecurrenceDueInfo, 
   formatRecurrenceLabel, 
   computeNextDueDate, 
-  getNextFutureDueDate 
+  getNextFutureDueDate,
+  hasEmbeddedAmountTemplate,
+  extractDescriptionTemplate,
+  formatTemplatedDescription,
+  normalizeRecurringKey
 } from './utils/recurrence';
 
 export const App: React.FC = () => {
@@ -84,6 +88,31 @@ export const App: React.FC = () => {
   const [bannerLineMode, setBannerLineMode] = useState<'all' | 'recurring' | 'custom' | 'off'>('all');
   const [customBannerLineIds, setCustomBannerLineIds] = useState<string[]>([]);
   const [isBannerModeDropdownOpen, setIsBannerModeDropdownOpen] = useState(false);
+
+  // Incoming Web Share Target parameters (PWA mobile share sheet)
+  const [sharedKeepText, setSharedKeepText] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const shareText = params.get('share_text') || params.get('text');
+      const shareTitle = params.get('share_title') || params.get('title');
+      const shareUrl = params.get('share_url') || params.get('url');
+
+      if (shareText || shareTitle || shareUrl) {
+        const combined = [shareTitle, shareText, shareUrl].filter(Boolean).join('\n');
+        setSharedKeepText(combined);
+        setIsImportExportOpen(true);
+
+        // Clean search query from URL without reloading
+        const cleanUrl = window.location.pathname + window.location.hash;
+        window.history.replaceState({}, document.title, cleanUrl);
+      }
+    } catch (err) {
+      console.warn('Error reading share target parameters:', err);
+    }
+  }, []);
 
   // Load from Dexie on mount
   useEffect(() => {
@@ -167,22 +196,25 @@ export const App: React.FC = () => {
 
   // Toast notification state
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  // Inline custom amounts typed on variable-amount / on-demand recurring reminder cards
+  const [recurringCustomAmounts, setRecurringCustomAmounts] = useState<Record<string, string>>({});
 
   // 1-Click Repeat transaction for today
   const handleRepeatTransaction = async (tx: Transaction) => {
     const today = new Date().toISOString().split('T')[0];
     const isWeek = tx.recurrence === 'weekly' || tx.recurrence === 'biweekly';
     const isMonth = tx.recurrence === 'monthly';
+    const isScheduled = tx.recurrence && tx.recurrence !== 'none' && tx.recurrence !== 'as_needed';
 
     const newTx: Transaction = {
       ...tx,
       id: 'tx-' + Date.now(),
       date: today,
       status: 'completed',
-      nextDueDate: tx.recurrence && tx.recurrence !== 'none'
+      nextDueDate: isScheduled
         ? computeNextDueDate(
             today, 
-            tx.recurrence, 
+            tx.recurrence!, 
             isWeek ? tx.recurrenceDayOfWeek : undefined, 
             isMonth ? tx.recurrenceDayOfMonth : undefined
           )
@@ -195,49 +227,79 @@ export const App: React.FC = () => {
     setTimeout(() => setToastMessage(null), 3500);
   };
 
-  // Log and advance a recurring expense from reminder banner
+  // Log and advance a recurring expense/income from reminder banner
   const handlePayRecurring = async (
     tx: Transaction, 
     currentEffectiveDueDate?: string, 
-    logDateMode: 'today' | 'due' = 'today'
+    logDateMode: 'today' | 'due' = 'today',
+    overrideAmountStr?: string
   ) => {
     const today = new Date().toISOString().split('T')[0];
-    const baseDate = currentEffectiveDueDate || tx.nextDueDate || today;
+    const isAsNeeded = tx.recurrence === 'as_needed';
     const isWeek = tx.recurrence === 'weekly' || tx.recurrence === 'biweekly';
     const isMonth = tx.recurrence === 'monthly';
 
-    const nextDate = computeNextDueDate(
-      baseDate, 
-      tx.recurrence || 'weekly',
-      isWeek ? tx.recurrenceDayOfWeek : undefined,
-      isMonth ? tx.recurrenceDayOfMonth : undefined
-    );
+    const rawTypedAmount = (overrideAmountStr !== undefined ? overrideAmountStr : (recurringCustomAmounts[tx.id] || '')).trim();
+    const parsedOverride = rawTypedAmount !== '' ? parseFloat(rawTypedAmount) : NaN;
+    const finalAmount = !isNaN(parsedOverride) && parsedOverride > 0 ? parsedOverride : tx.amount;
 
-    const targetDate = logDateMode === 'due' ? baseDate : today;
+    const activeTemplate = tx.descriptionTemplate || (hasEmbeddedAmountTemplate(tx.description) ? extractDescriptionTemplate(tx.description) : undefined);
+    const finalDescription = activeTemplate
+      ? formatTemplatedDescription(activeTemplate, rawTypedAmount !== '' ? rawTypedAmount : finalAmount)
+      : tx.description;
 
-    // 1. Log payment instance for targetDate
+    // When logging for 'due', target is the scheduled due date.
+    // When logging for 'today' (or 'as_needed'), target is today.
+    const targetDate = (!isAsNeeded && logDateMode === 'due')
+      ? (currentEffectiveDueDate || tx.nextDueDate || today) 
+      : today;
+
+    // 1. Log payment/income instance for targetDate
     const newTx: Transaction = {
       ...tx,
       id: 'tx-' + Date.now(),
       date: targetDate,
+      amount: finalAmount,
+      description: finalDescription,
       status: 'completed',
       recurrence: undefined,
       recurrenceDayOfWeek: undefined,
       recurrenceDayOfMonth: undefined,
       nextDueDate: undefined,
+      isVariableAmount: undefined,
+      descriptionTemplate: undefined,
       createdAt: Date.now()
     };
     await handleSaveTransaction(newTx);
 
-    // 2. Advance template transaction's nextDueDate
-    const updatedTemplate: Transaction = {
-      ...tx,
-      nextDueDate: nextDate
-    };
-    await handleSaveTransaction(updatedTemplate);
+    // Clear typed custom amount for this card
+    setRecurringCustomAmounts(prev => {
+      if (!(tx.id in prev)) return prev;
+      const next = { ...prev };
+      delete next[tx.id];
+      return next;
+    });
 
-    const dateNotice = targetDate === today ? 'today' : `due date (${targetDate})`;
-    setToastMessage(`Logged "${tx.description}" ($${tx.amount.toFixed(2)}) for ${dateNotice}! Next due: ${nextDate}`);
+    // 2. Advance template transaction's nextDueDate for scheduled recurrences
+    if (!isAsNeeded) {
+      const nextDate = computeNextDueDate(
+        targetDate, 
+        tx.recurrence || 'weekly',
+        isWeek ? tx.recurrenceDayOfWeek : undefined,
+        isMonth ? tx.recurrenceDayOfMonth : undefined
+      );
+
+      const updatedTemplate: Transaction = {
+        ...tx,
+        nextDueDate: nextDate
+      };
+      await handleSaveTransaction(updatedTemplate);
+
+      const dateNotice = targetDate === today ? 'today' : `due date (${targetDate})`;
+      setToastMessage(`Logged "${finalDescription}" ($${finalAmount.toFixed(2)}) for ${dateNotice}! Next due: ${nextDate}`);
+    } else {
+      setToastMessage(`Logged "${finalDescription}" ($${finalAmount.toFixed(2)}) for today!`);
+    }
     setTimeout(() => setToastMessage(null), 3500);
   };
 
@@ -487,12 +549,22 @@ export const App: React.FC = () => {
     }).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime() || b.createdAt - a.createdAt);
   }, [dataState.transactions, searchQuery, selectedModeFilter, selectedTypeFilter, selectedCategoryFilter, selectedMonthFilter, selectedBannerFilter]);
 
-  // Upcoming recurring expenses for notifications & reminders
+  // Upcoming recurring expenses & income templates for notifications & reminders
   const upcomingRecurring = useMemo(() => {
     const recurringMap = new Map<string, Transaction>();
+    // Track latest completed payment date and amount per normalized key
+    const latestPaymentMap = new Map<string, { date: string; amount: number; description: string }>();
+
     dataState.transactions.forEach(t => {
+      const key = normalizeRecurringKey(t.description, t.descriptionTemplate);
+      if (t.status === 'completed' && t.date) {
+        const prevPayment = latestPaymentMap.get(key);
+        if (!prevPayment || t.date > prevPayment.date) {
+          latestPaymentMap.set(key, { date: t.date, amount: t.amount, description: t.description });
+        }
+      }
+
       if (t.recurrence && t.recurrence !== 'none' && t.status !== 'cancelled') {
-        const key = t.description.trim().toLowerCase();
         const existing = recurringMap.get(key);
         if (!existing || t.date > existing.date) {
           recurringMap.set(key, t);
@@ -501,21 +573,57 @@ export const App: React.FC = () => {
     });
 
     return Array.from(recurringMap.values()).map(item => {
+      const isAsNeeded = item.recurrence === 'as_needed';
       const isWeek = item.recurrence === 'weekly' || item.recurrence === 'biweekly';
       const isMonth = item.recurrence === 'monthly';
-      const effectiveDueDate = item.nextDueDate || getNextFutureDueDate(
+      const key = normalizeRecurringKey(item.description, item.descriptionTemplate);
+      const latestPayment = latestPaymentMap.get(key);
+      const latestPaymentDate = latestPayment?.date;
+
+      if (isAsNeeded) {
+        return {
+          item,
+          effectiveDueDate: '',
+          dueInfo: null,
+          latestPayment
+        };
+      }
+
+      let effectiveDueDate = item.nextDueDate || getNextFutureDueDate(
         item.date, 
         item.recurrence!,
         isWeek ? item.recurrenceDayOfWeek : undefined,
         isMonth ? item.recurrenceDayOfMonth : undefined
       );
+
+      // Self-healing / reconciliation: if a completed payment was logged (e.g. today)
+      // and the stored nextDueDate jumped multiple cycles ahead (e.g. 28 days instead of 14),
+      // reconcile effectiveDueDate to exactly 1 cycle from that latest payment.
+      if (latestPaymentDate && item.recurrence && item.recurrence !== 'none') {
+        const expectedNextFromPayment = computeNextDueDate(
+          latestPaymentDate,
+          item.recurrence,
+          isWeek ? item.recurrenceDayOfWeek : undefined,
+          isMonth ? item.recurrenceDayOfMonth : undefined
+        );
+        if (effectiveDueDate > expectedNextFromPayment) {
+          effectiveDueDate = expectedNextFromPayment;
+        }
+      }
+
       const dueInfo = getRecurrenceDueInfo(effectiveDueDate);
       return {
         item,
         effectiveDueDate,
-        dueInfo
+        dueInfo,
+        latestPayment
       };
-    }).sort((a, b) => a.effectiveDueDate.localeCompare(b.effectiveDueDate));
+    }).sort((a, b) => {
+      if (!a.effectiveDueDate && !b.effectiveDueDate) return 0;
+      if (!a.effectiveDueDate) return 1;
+      if (!b.effectiveDueDate) return -1;
+      return a.effectiveDueDate.localeCompare(b.effectiveDueDate);
+    });
   }, [dataState.transactions]);
 
   // Group transactions by Date (like Google Keep notes format)
@@ -1102,35 +1210,99 @@ export const App: React.FC = () => {
                     </span>
                   </h3>
                   <p className="text-xs text-[var(--text-secondary)]">
-                    Upcoming scheduled bills, rent, and subscriptions
+                    Upcoming scheduled bills, rent, weekly casual income, and on-demand payment templates
                   </p>
                 </div>
               </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 pt-1">
-              {upcomingRecurring.map(({ item, effectiveDueDate, dueInfo }) => {
+              {upcomingRecurring.map(({ item, effectiveDueDate, dueInfo, latestPayment }) => {
+                const isAsNeeded = item.recurrence === 'as_needed';
+                const isIncome = item.type === 'income';
+                const activeTemplate = item.descriptionTemplate || (hasEmbeddedAmountTemplate(item.description) ? extractDescriptionTemplate(item.description) : undefined);
+                const isVariable = Boolean(item.isVariableAmount || isAsNeeded || activeTemplate);
+                const typedAmount = recurringCustomAmounts[item.id] ?? '';
+                const fallbackAmt = latestPayment?.amount ?? item.amount;
+                const displayDescription = activeTemplate
+                  ? formatTemplatedDescription(activeTemplate, typedAmount, fallbackAmt)
+                  : item.description;
+
                 return (
                   <div 
                     key={item.id}
-                    className="p-3.5 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-light)] flex flex-col justify-between gap-3 hover:border-purple-500/30 transition-all shadow-sm"
+                    className={`p-3.5 rounded-xl bg-[var(--bg-secondary)] border flex flex-col justify-between gap-3 transition-all shadow-sm ${
+                      isIncome
+                        ? 'border-emerald-500/25 hover:border-emerald-500/50'
+                        : 'border-[var(--border-light)] hover:border-purple-500/30'
+                    }`}
                   >
                     {/* Header: Description & Recurrence badge */}
-                    <div className="flex items-start justify-between gap-2 min-w-0">
-                      <span className="text-xs font-semibold text-[var(--text-primary)] truncate" title={item.description}>
-                        {item.description}
-                      </span>
-                      <span className="text-[10px] px-2 py-0.5 rounded bg-purple-500/15 text-purple-400 font-medium shrink-0">
-                        {formatRecurrenceLabel(item.recurrence, item.recurrenceDayOfWeek, item.recurrenceDayOfMonth)}
-                      </span>
+                    <div className="space-y-1">
+                      <div className="flex items-start justify-between gap-2 min-w-0">
+                        <span className="text-xs font-semibold text-[var(--text-primary)] break-words leading-snug" title={displayDescription}>
+                          {displayDescription}
+                        </span>
+                        <div className="flex items-center gap-1 shrink-0">
+                          {isIncome && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 font-semibold">
+                              Income
+                            </span>
+                          )}
+                          <span className={`text-[10px] px-2 py-0.5 rounded font-medium ${
+                            isAsNeeded
+                              ? 'bg-amber-500/15 text-amber-400'
+                              : isIncome
+                              ? 'bg-emerald-500/15 text-emerald-400'
+                              : 'bg-purple-500/15 text-purple-400'
+                          }`}>
+                            {formatRecurrenceLabel(item.recurrence, item.recurrenceDayOfWeek, item.recurrenceDayOfMonth)}
+                          </span>
+                        </div>
+                      </div>
+                      {activeTemplate && (
+                        <div className="text-[10px] text-[var(--text-secondary)]">
+                          Template: typing amount below populates description &amp; amount
+                        </div>
+                      )}
                     </div>
 
-                    {/* Middle: Amount & Due status */}
-                    <div className="flex items-baseline justify-between gap-2">
-                      <span className="font-mono font-bold text-sm text-rose-400">
-                        ${item.amount.toFixed(2)}
-                      </span>
-                      {dueInfo?.isDueToday ? (
+                    {/* Middle: Amount (Static or Variable Input) & Due status */}
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      {isVariable ? (
+                        <div className="flex items-center gap-1.5">
+                          <span className={`font-mono font-bold text-sm ${isIncome ? 'text-emerald-400' : 'text-rose-400'}`}>
+                            {isIncome ? '+$' : '$'}
+                          </span>
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0.01"
+                            value={typedAmount}
+                            onChange={(e) => setRecurringCustomAmounts(prev => ({ ...prev, [item.id]: e.target.value }))}
+                            placeholder={fallbackAmt.toFixed(2)}
+                            aria-label={`Enter amount for ${item.description}`}
+                            className={`apple-input py-1 px-2 text-xs font-mono font-bold w-28 ${
+                              isIncome
+                                ? 'text-emerald-400 border-emerald-500/30 focus:border-emerald-400'
+                                : 'text-rose-400 border-purple-500/30 focus:border-purple-400'
+                            }`}
+                          />
+                        </div>
+                      ) : (
+                        <span className={`font-mono font-bold text-sm ${isIncome ? 'text-emerald-400' : 'text-rose-400'}`}>
+                          {isIncome ? '+' : ''}${item.amount.toFixed(2)}
+                        </span>
+                      )}
+
+                      {isAsNeeded ? (
+                        <span className="text-[11px] text-[var(--text-secondary)] flex items-center gap-1 shrink-0">
+                          <Clock className="w-3 h-3 text-amber-400" />
+                          {latestPayment
+                            ? `Last: $${latestPayment.amount.toFixed(2)} (${latestPayment.date})`
+                            : 'Whenever needed'}
+                        </span>
+                      ) : dueInfo?.isDueToday ? (
                         <span className="text-[11px] text-amber-400 font-medium flex items-center gap-1 shrink-0">
                           <Bell className="w-3 h-3" /> Due Today
                         </span>
@@ -1147,11 +1319,11 @@ export const App: React.FC = () => {
 
                     {/* Footer: Action Buttons */}
                     <div className="pt-2 border-t border-[var(--border-light)] flex items-center gap-2">
-                      {!dueInfo?.isDueToday && (
+                      {!isAsNeeded && !dueInfo?.isDueToday && (
                         <button
                           onClick={() => handlePayRecurring(item, effectiveDueDate, 'due')}
                           className="apple-btn apple-btn-secondary text-xs py-1.5 px-2 flex-1 flex items-center justify-center gap-1 hover:border-purple-500/40 transition-colors"
-                          title={`Log payment on scheduled due date (${dueInfo?.formattedDueDate || effectiveDueDate}) and advance due date`}
+                          title={`Log ${isIncome ? 'income' : 'payment'} on scheduled due date (${dueInfo?.formattedDueDate || effectiveDueDate}) and advance due date`}
                         >
                           <Calendar className="w-3.5 h-3.5 text-purple-400 shrink-0" />
                           <span className="truncate">Log on Due Date</span>
@@ -1160,7 +1332,7 @@ export const App: React.FC = () => {
                       <button
                         onClick={() => handlePayRecurring(item, effectiveDueDate, 'today')}
                         className="apple-btn apple-btn-primary text-xs py-1.5 px-2 flex-1 flex items-center justify-center gap-1 transition-colors"
-                        title="Log payment for today and advance due date"
+                        title={isAsNeeded ? 'Log payment for today with entered amount' : `Log ${isIncome ? 'income' : 'payment'} for today and advance due date`}
                       >
                         <Check className="w-3.5 h-3.5 shrink-0" />
                         <span className="truncate">Log Today</span>
@@ -1825,9 +1997,14 @@ export const App: React.FC = () => {
 
       <ImportExportModal
         isOpen={isImportExportOpen}
-        onClose={() => setIsImportExportOpen(false)}
+        onClose={() => {
+          setIsImportExportOpen(false);
+          setSharedKeepText(null);
+        }}
         currentState={dataState}
         onUpdateState={handleUpdateDataState}
+        initialTab={sharedKeepText ? 'keep' : undefined}
+        initialKeepText={sharedKeepText || undefined}
       />
 
       {/* Toast Notification */}

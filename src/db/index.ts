@@ -1,9 +1,10 @@
 import Dexie, { type Table } from 'dexie';
-import { Transaction, PaymentMode, ExpenseDataState, Banner } from '../types/expense';
+import type { Transaction, PaymentMode, ExpenseDataState, Banner } from '../types/expense';
 import { 
   DEFAULT_PAYMENT_MODES, 
   DEFAULT_CATEGORIES, 
-  INITIAL_TRANSACTIONS 
+  INITIAL_TRANSACTIONS,
+  ensureDefaultRecurringTemplates
 } from '../utils/storage';
 
 export interface SettingItem {
@@ -85,6 +86,10 @@ export class ExpenseDB extends Dexie {
     }
 
     const transactions = await this.transactions.orderBy('date').reverse().toArray();
+    const modifiedTemplates = ensureDefaultRecurringTemplates(transactions);
+    if (modifiedTemplates.length > 0) {
+      await this.transactions.bulkPut(modifiedTemplates);
+    }
     const paymentModes = await this.paymentModes.toArray();
     const catItems = await this.categories.toArray();
     const categories = catItems.length > 0 ? catItems.map(c => c.name) : DEFAULT_CATEGORIES;
@@ -100,6 +105,10 @@ export class ExpenseDB extends Dexie {
 
   async getAllData(): Promise<ExpenseDataState> {
     const transactions = await this.transactions.orderBy('date').reverse().toArray();
+    const modifiedTemplates = ensureDefaultRecurringTemplates(transactions);
+    if (modifiedTemplates.length > 0) {
+      await this.transactions.bulkPut(modifiedTemplates);
+    }
     const paymentModes = await this.paymentModes.toArray();
     const catItems = await this.categories.toArray();
     const banners = await this.banners.toArray();
