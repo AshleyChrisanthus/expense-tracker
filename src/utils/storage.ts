@@ -51,12 +51,25 @@ export function ensureDefaultRecurringTemplates(_transactions: Transaction[]): T
 
 export function loadExpenseData(): ExpenseDataState {
   try {
+    // Purge legacy storage cache from earlier v1/v2 builds
+    if (typeof localStorage !== 'undefined' && localStorage.getItem('expense_tracker_v3_clean') !== 'true') {
+      localStorage.removeItem('expense_tracker_state_v1');
+      localStorage.removeItem('expense_tracker_state_v2');
+      localStorage.removeItem('expense_data_version');
+      localStorage.setItem('expense_tracker_v3_clean', 'true');
+    }
+
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
       if (parsed && Array.isArray(parsed.transactions) && Array.isArray(parsed.paymentModes)) {
+        // Filter out any legacy pre-populated items
+        const cleanTxs = parsed.transactions.filter(
+          (t: Transaction) => !t.id || (!t.id.startsWith('sheet-') && !/^tx-\d+$/.test(t.id) && !t.date?.startsWith('2024-'))
+        );
+        parsed.transactions = cleanTxs;
         const modified = ensureDefaultRecurringTemplates(parsed.transactions);
-        if (modified.length > 0) {
+        if (modified.length > 0 || cleanTxs.length !== parsed.transactions.length) {
           saveExpenseData(parsed);
         }
         return parsed;

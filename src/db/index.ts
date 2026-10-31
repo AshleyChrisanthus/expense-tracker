@@ -56,9 +56,12 @@ export class ExpenseDB extends Dexie {
   }> {
     // Purge legacy hardcoded seed data if still lingering in client IndexedDB
     try {
-      if (typeof localStorage !== 'undefined' && localStorage.getItem('expense_tracker_legacy_purged_v3') !== 'true') {
+      if (typeof localStorage !== 'undefined' && localStorage.getItem('expense_tracker_legacy_purged_v4') !== 'true') {
         const allTxs = await this.transactions.toArray();
-        const legacyIds = allTxs.filter(t => t.id && t.id.startsWith('sheet-')).map(t => t.id);
+        const legacyIds = allTxs
+          .filter(t => !t.id || t.id.startsWith('sheet-') || t.id.startsWith('demo-') || /^tx-\d+$/.test(t.id) || t.date?.startsWith('2024-'))
+          .map(t => t.id);
+
         if (legacyIds.length > 0) {
           await this.transactions.bulkDelete(legacyIds);
         }
@@ -68,7 +71,7 @@ export class ExpenseDB extends Dexie {
         if (curBanners === 0) {
           await this.banners.bulkPut(DEFAULT_BANNERS);
         }
-        localStorage.setItem('expense_tracker_legacy_purged_v3', 'true');
+        localStorage.setItem('expense_tracker_legacy_purged_v4', 'true');
       }
     } catch (_) {}
 
