@@ -649,6 +649,17 @@ export const SyncModal: React.FC<SyncModalProps> = ({ isOpen, onClose }) => {
                   </div>
                 </div>
               )}
+
+              {/* How to deploy your Cloudflare Worker */}
+              <div className="p-3 rounded-lg bg-black/30 border border-[var(--border-subtle)] text-[11px] space-y-1.5 text-[var(--text-secondary)]">
+                <span className="font-semibold text-[var(--text-primary)] block">How to deploy your Cloudflare Sync Worker:</span>
+                <ol className="list-decimal list-inside space-y-1">
+                  <li>In terminal, authenticate once: <code className="text-cyan-400">npx wrangler login</code></li>
+                  <li>Create your KV namespace: <code className="text-cyan-400">npm run worker:kv</code></li>
+                  <li>Copy the generated KV ID into <code className="text-cyan-400">wrangler.toml</code></li>
+                  <li>Deploy your worker: <code className="text-cyan-400">npm run deploy:worker</code></li>
+                </ol>
+              </div>
             </div>
           )}
         </div>

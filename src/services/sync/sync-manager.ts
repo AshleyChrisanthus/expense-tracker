@@ -414,10 +414,18 @@ export class SyncManager {
       this.setStatus('synced', now);
     } catch (err: any) {
       console.warn('[Sync] Sync failed:', err);
+      let userMessage = err.message || 'Sync error';
+      if (err.message === 'Failed to fetch' || err.message?.includes('fetch failed')) {
+        if (this.config.customEndpoint?.includes('workers.dev')) {
+          userMessage = 'Cloudflare Worker not deployed yet ("Failed to fetch"). Run "npm run deploy:worker" to deploy.';
+        } else {
+          userMessage = 'Could not reach sync endpoint (Network or CORS error).';
+        }
+      }
       this.setStatus(
         'error',
         this.config.lastSyncedAt ? new Date(this.config.lastSyncedAt) : null,
-        err.message || 'Sync error'
+        userMessage
       );
       throw err;
     } finally {

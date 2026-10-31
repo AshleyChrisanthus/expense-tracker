@@ -324,9 +324,13 @@ export async function probeEndpoint(endpointUrl: string): Promise<EndpointProbeR
         message: 'Connection timed out (8s). Check your internet or endpoint URL.'
       };
     }
+    const isWorkersDev = base.includes('workers.dev');
     return {
       ok: false,
-      message: `Connection failed: ${err.message || 'Network error or CORS restriction.'}`
+      isCloudflareUndeployed: isWorkersDev,
+      message: isWorkersDev
+        ? 'Could not reach worker ("Failed to fetch"). The worker has not been deployed to your Cloudflare account yet. Run "npx wrangler login" and "npm run deploy:worker".'
+        : `Connection failed: ${err.message || 'Network error or CORS restriction.'}`
     };
   } finally {
     clearTimeout(timer);
