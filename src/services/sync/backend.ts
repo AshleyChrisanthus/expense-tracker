@@ -258,3 +258,77 @@ export function createLockerAdapter(config: SyncConfig): CloudLockerAdapter {
   const endpoint = config.customEndpoint || DEFAULT_CLOUDFLARE_WORKER_URL;
   return new CustomWorkerLocker(endpoint, config.customAuthHeader);
 }
+
+export interface EndpointProbeResult {
+  ok: boolean;
+  status?: number;
+  message: string;
+  isCloudflareUndeployed?: boolean;
+}
+
+/**
+ * Probes a Cloudflare Worker or serverless sync endpoint to check deployment and connectivity.
+ */
+export async function probeEndpoint(endpointUrl: string): Promise<EndpointProbeResult> {
+  const base = (endpointUrl || '').trim().replace(/\/+$/, '');
+  if (!base) {
+    return { ok: false, message: 'Endpoint URL cannot be empty.' };
+  }
+
+  const healthUrl = `${base}/api/health`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 8000);
+
+  try {
+    const res = await fetch(healthUrl, {
+      method: 'GET',
+      headers: { 'Accept': 'application/json' },
+      signal: controller.signal
+    });
+
+    const contentType = res.headers.get('content-type') || '';
+
+    if (res.ok) {
+      return {
+        ok: true,
+        status: res.status,
+        message: 'Cloudflare Worker is online and active (HTTP 200 OK).'
+      };
+    }
+
+    if (res.status === 404) {
+      if (contentType.includes('application/json')) {
+        return {
+          ok: true,
+          status: 404,
+          message: 'Cloudflare Worker is online and responding to API requests.'
+        };
+      }
+      return {
+        ok: false,
+        status: 404,
+        isCloudflareUndeployed: true,
+        message: 'Cloudflare subdomain reachable, but worker is not deployed yet (HTTP 404 HTML). Run "npm run deploy:worker".'
+      };
+    }
+
+    return {
+      ok: false,
+      status: res.status,
+      message: `Endpoint returned HTTP ${res.status}: ${res.statusText || 'Unexpected response'}`
+    };
+  } catch (err: any) {
+    if (err.name === 'AbortError') {
+      return {
+        ok: false,
+        message: 'Connection timed out (8s). Check your internet or endpoint URL.'
+      };
+    }
+    return {
+      ok: false,
+      message: `Connection failed: ${err.message || 'Network error or CORS restriction.'}`
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}

@@ -33,6 +33,19 @@ export default {
       'Content-Type': 'application/json'
     };
 
+    // Health check route: /api/health or /health
+    if (url.pathname === '/api/health' || url.pathname === '/health') {
+      return new Response(JSON.stringify({
+        status: 'ok',
+        service: 'expense-tracker-sync',
+        version: '1.0.0',
+        timestamp: new Date().toISOString()
+      }), {
+        status: 200,
+        headers: corsHeaders
+      });
+    }
+
     // Route: /api/vault/:vaultId
     const match = url.pathname.match(/^\/api\/vault\/([a-zA-Z0-9_-]+)$/);
     if (!match) {

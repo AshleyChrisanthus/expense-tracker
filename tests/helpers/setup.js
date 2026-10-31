@@ -107,8 +107,9 @@ export async function getSyncModules() {
   const crypto = await import('../../src/services/sync/crypto.ts');
   const merger = await import('../../src/services/sync/merger.ts');
   const qr = await import('../../src/services/sync/qr.ts');
+  const backend = await import('../../src/services/sync/backend.ts');
   const syncManager = await import('../../src/services/sync/sync-manager.ts');
-  return { ...crypto, ...merger, ...qr, ...syncManager };
+  return { ...crypto, ...merger, ...qr, ...backend, ...syncManager };
 }
 
 // Reset database tables and state between tests

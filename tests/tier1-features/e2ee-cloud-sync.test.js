@@ -1,6 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { getSyncModules } from '../helpers/setup.js';
+import { getSyncModules, mockFetch, restoreFetch } from '../helpers/setup.js';
 
 describe('Tier 1: End-to-End Encrypted (E2EE) Cloud Sync & QR Pairing (Issue #19)', () => {
   it('should generate valid 256-bit AES-GCM keys and roundtrip Base64URL encoding', async () => {
@@ -273,5 +273,99 @@ describe('Tier 1: End-to-End Encrypted (E2EE) Cloud Sync & QR Pairing (Issue #19
 
     assert.ok(url.startsWith(CANONICAL_HOSTED_URL) || url.startsWith('http'));
     assert.ok(url.includes('#sync=v1:vault_abc:key_xyz'));
+  });
+
+  it('should create vault locally with offline status when cloud endpoint returns 404 (local-first resilience, Issue #24)', async () => {
+    const { SyncManager } = await getSyncModules();
+    const manager = new SyncManager();
+
+    // Mock fetch returning HTML 404 (simulating undeployed worker or network error)
+    mockFetch(async (url, init) => {
+      return {
+        ok: false,
+        status: 404,
+        statusText: 'Not Found',
+        headers: new Headers({ 'Content-Type': 'text/html' }),
+        text: async () => '<!DOCTYPE html><title>Page not found</title>',
+        json: async () => { throw new Error('Not JSON'); }
+      };
+    });
+
+    try {
+      const config = await manager.createNewVault('custom', 'https://expense-tracker-sync.ashleychrisanthus.workers.dev');
+      assert.ok(config, 'Config must be returned');
+      assert.ok(config.vaultId, 'Must generate vault ID');
+      assert.ok(config.secretKey, 'Must generate AES-GCM secret key');
+      assert.equal(config.enabled, true);
+
+      const status = manager.getStatus();
+      assert.equal(status.state, 'offline', 'Status must be set to offline instead of throwing');
+      assert.ok(status.errorMessage?.includes('Vault created locally'), 'Informative offline error message set');
+    } finally {
+      restoreFetch();
+    }
+  });
+
+  it('should probe sync endpoints and distinguish active worker JSON from undeployed HTML 404 (Issue #24)', async () => {
+    const { probeEndpoint } = await getSyncModules();
+
+    // Probe 1: Undeployed Cloudflare domain returning HTML 404
+    mockFetch(async () => {
+      return {
+        ok: false,
+        status: 404,
+        statusText: 'Not Found',
+        headers: new Headers({ 'Content-Type': 'text/html' }),
+        text: async () => 'Page not found',
+        json: async () => { throw new Error('Not JSON'); }
+      };
+    });
+
+    const undeployedResult = await probeEndpoint('https://undeployed.workers.dev');
+    assert.equal(undeployedResult.ok, false);
+    assert.equal(undeployedResult.status, 404);
+    assert.equal(undeployedResult.isCloudflareUndeployed, true);
+    assert.ok(undeployedResult.message.includes('npm run deploy:worker'));
+
+    // Probe 2: Active Worker returning 200 JSON
+    mockFetch(async () => {
+      return {
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        headers: new Headers({ 'Content-Type': 'application/json' }),
+        text: async () => JSON.stringify({ status: 'ok', service: 'expense-tracker-sync' }),
+        json: async () => ({ status: 'ok', service: 'expense-tracker-sync' })
+      };
+    });
+
+    const activeResult = await probeEndpoint('https://active-worker.workers.dev');
+    assert.equal(activeResult.ok, true);
+    assert.equal(activeResult.status, 200);
+    assert.ok(activeResult.message.includes('online and active'));
+
+    restoreFetch();
+  });
+
+  it('should update custom endpoint and persist to storage (Issue #24)', async () => {
+    const { SyncManager } = await getSyncModules();
+    const manager = new SyncManager();
+
+    mockFetch(async () => ({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'Content-Type': 'application/json' }),
+      text: async () => JSON.stringify({}),
+      json: async () => ({})
+    }));
+
+    try {
+      await manager.createNewVault();
+      manager.updateEndpoint('https://custom-sync-proxy.mycompany.com');
+      assert.equal(manager.getConfig()?.customEndpoint, 'https://custom-sync-proxy.mycompany.com');
+    } finally {
+      manager.disconnectVault();
+      restoreFetch();
+    }
   });
 });

@@ -11,11 +11,15 @@ import {
   X, 
   AlertCircle,
   Unlink,
-  CheckCircle2
+  CheckCircle2,
+  Server,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 import { syncManager } from '../services/sync/sync-manager';
 import { generateQrSvg } from '../services/sync/qr';
 import { QrCameraScanner } from '../services/sync/scanner';
+import { DEFAULT_CLOUDFLARE_WORKER_URL } from '../services/sync/backend';
 import type { SyncStatus, SyncConfig } from '../services/sync/types';
 
 interface SyncModalProps {
@@ -34,6 +38,19 @@ export const SyncModal: React.FC<SyncModalProps> = ({ isOpen, onClose }) => {
   const [copiedLink, setCopiedLink] = useState(false);
   const [copiedKey, setCopiedKey] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+
+  // Endpoint Settings state
+  const [showEndpointSettings, setShowEndpointSettings] = useState(false);
+  const [endpointInput, setEndpointInput] = useState<string>(
+    syncManager.getConfig()?.customEndpoint || syncManager.getDefaultEndpoint()
+  );
+  const [isTestingEndpoint, setIsTestingEndpoint] = useState(false);
+  const [endpointTestResult, setEndpointTestResult] = useState<{
+    ok: boolean;
+    message: string;
+    isCloudflareUndeployed?: boolean;
+  } | null>(null);
 
   // Join state
   const [joinInput, setJoinInput] = useState('');
@@ -49,7 +66,11 @@ export const SyncModal: React.FC<SyncModalProps> = ({ isOpen, onClose }) => {
   useEffect(() => {
     const unsub = syncManager.onStatusChange((newStatus) => {
       setStatus(newStatus);
-      setConfig(syncManager.getConfig());
+      const latestConfig = syncManager.getConfig();
+      setConfig(latestConfig);
+      if (latestConfig?.customEndpoint) {
+        setEndpointInput(latestConfig.customEndpoint);
+      }
     });
     return unsub;
   }, []);
@@ -59,6 +80,9 @@ export const SyncModal: React.FC<SyncModalProps> = ({ isOpen, onClose }) => {
     if (isOpen) {
       const cfg = syncManager.getConfig();
       setConfig(cfg);
+      if (cfg?.customEndpoint) {
+        setEndpointInput(cfg.customEndpoint);
+      }
       if (cfg && cfg.enabled) {
         setActiveTab('status');
         updateQrCode(cfg.vaultId, cfg.secretKey);
@@ -95,16 +119,52 @@ export const SyncModal: React.FC<SyncModalProps> = ({ isOpen, onClose }) => {
 
   const handleCreateVault = async () => {
     setIsCreating(true);
+    setCreateError(null);
     try {
-      const newConfig = await syncManager.createNewVault();
+      const newConfig = await syncManager.createNewVault('custom', endpointInput);
       setConfig(newConfig);
       updateQrCode(newConfig.vaultId, newConfig.secretKey);
       setActiveTab('create');
     } catch (err: any) {
       console.error('Failed to create vault:', err);
+      setCreateError(err.message || 'Failed to create vault.');
     } finally {
       setIsCreating(false);
     }
+  };
+
+  const handleTestEndpoint = async () => {
+    setIsTestingEndpoint(true);
+    setEndpointTestResult(null);
+    try {
+      const result = await syncManager.testEndpointConnection(endpointInput);
+      setEndpointTestResult(result);
+    } catch (err: any) {
+      setEndpointTestResult({
+        ok: false,
+        message: err.message || 'Connection test failed.'
+      });
+    } finally {
+      setIsTestingEndpoint(false);
+    }
+  };
+
+  const handleSaveEndpoint = () => {
+    syncManager.updateEndpoint(endpointInput);
+    setEndpointTestResult({
+      ok: true,
+      message: 'Sync endpoint successfully saved.'
+    });
+  };
+
+  const handleResetEndpoint = () => {
+    const def = DEFAULT_CLOUDFLARE_WORKER_URL;
+    setEndpointInput(def);
+    syncManager.updateEndpoint(def);
+    setEndpointTestResult({
+      ok: true,
+      message: 'Reset to default Cloudflare worker endpoint.'
+    });
   };
 
   const handleManualJoin = async () => {
@@ -347,6 +407,18 @@ export const SyncModal: React.FC<SyncModalProps> = ({ isOpen, onClose }) => {
                 </div>
               </div>
 
+              {status.errorMessage && (
+                <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/25 text-xs text-amber-300 flex items-start gap-2.5">
+                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-amber-400" />
+                  <div className="space-y-1">
+                    <p className="font-medium">{status.errorMessage}</p>
+                    <p className="text-[11px] text-[var(--text-secondary)]">
+                      Your local vault is active and offline-ready. Once your worker is deployed or online, click "Sync Now".
+                    </p>
+                  </div>
+                </div>
+              )}
+
               <div className="pt-2 flex justify-between items-center">
                 <button
                   onClick={() => { setActiveTab('create'); updateQrCode(config!.vaultId, config!.secretKey); }}
@@ -386,6 +458,13 @@ export const SyncModal: React.FC<SyncModalProps> = ({ isOpen, onClose }) => {
                     {isCreating ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Key className="w-4 h-4" />}
                     Generate New Encrypted Vault
                   </button>
+
+                  {createError && (
+                    <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/25 text-xs text-rose-300 flex items-center gap-2 max-w-sm mx-auto">
+                      <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
+                      <span>{createError}</span>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div className="space-y-4 text-center">
@@ -492,6 +571,82 @@ export const SyncModal: React.FC<SyncModalProps> = ({ isOpen, onClose }) => {
                 <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-xs text-rose-400 flex items-center gap-2">
                   <AlertCircle className="w-4 h-4 shrink-0" />
                   <span>{joinError}</span>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Sync Endpoint & Cloudflare Settings Accordion */}
+        <div className="border-t border-[var(--border-subtle)] bg-black/10 shrink-0">
+          <button
+            onClick={() => setShowEndpointSettings(!showEndpointSettings)}
+            className="w-full px-6 py-2.5 flex items-center justify-between text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--surface-hover)] transition"
+          >
+            <div className="flex items-center gap-2">
+              <Server className="w-3.5 h-3.5 text-cyan-400" />
+              <span className="font-medium">Cloudflare Worker & Sync Endpoint Settings</span>
+            </div>
+            {showEndpointSettings ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+          </button>
+
+          {showEndpointSettings && (
+            <div className="px-6 py-3 space-y-3 bg-black/20 border-t border-[var(--border-subtle)] animate-in fade-in duration-150">
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between text-[11px] text-[var(--text-secondary)]">
+                  <span className="font-medium">Worker Endpoint URL:</span>
+                  <button
+                    onClick={handleResetEndpoint}
+                    className="text-[10px] text-cyan-400 hover:underline"
+                  >
+                    Reset to Default
+                  </button>
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={endpointInput}
+                    onChange={(e) => setEndpointInput(e.target.value)}
+                    placeholder="https://...workers.dev"
+                    className="flex-1 px-3 py-1.5 rounded-lg bg-[var(--surface-hover)] border border-[var(--border-subtle)] text-xs text-[var(--text-primary)] font-mono placeholder-[var(--text-secondary)] focus:outline-none focus:border-cyan-500"
+                  />
+                  <button
+                    onClick={handleTestEndpoint}
+                    disabled={isTestingEndpoint || !endpointInput.trim()}
+                    className="px-3 py-1.5 rounded-lg bg-[var(--surface-hover)] border border-[var(--border-subtle)] hover:border-cyan-500/40 text-xs font-medium text-[var(--text-primary)] transition flex items-center gap-1.5 shrink-0"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isTestingEndpoint ? 'animate-spin text-cyan-400' : ''}`} />
+                    Test
+                  </button>
+                  <button
+                    onClick={handleSaveEndpoint}
+                    disabled={!endpointInput.trim()}
+                    className="px-3 py-1.5 rounded-lg bg-cyan-500/20 text-cyan-400 border border-cyan-500/40 hover:bg-cyan-500/30 text-xs font-medium transition shrink-0"
+                  >
+                    Save
+                  </button>
+                </div>
+              </div>
+
+              {endpointTestResult && (
+                <div className={`p-2.5 rounded-lg border text-xs flex items-start gap-2 ${
+                  endpointTestResult.ok
+                    ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+                    : 'bg-amber-500/10 border-amber-500/30 text-amber-300'
+                }`}>
+                  {endpointTestResult.ok ? (
+                    <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-emerald-400" />
+                  ) : (
+                    <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-amber-400" />
+                  )}
+                  <div className="space-y-0.5">
+                    <p>{endpointTestResult.message}</p>
+                    {endpointTestResult.isCloudflareUndeployed && (
+                      <p className="font-mono text-[11px] text-[var(--text-secondary)] mt-1">
+                        To deploy: open terminal and run <code>npm run deploy:worker</code>
+                      </p>
+                    )}
+                  </div>
                 </div>
               )}
             </div>

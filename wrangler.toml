@@ -1,0 +1,11 @@
+name = "expense-tracker-sync"
+main = "server/cloudflare-sync-worker.js"
+compatibility_date = "2024-01-01"
+
+# Cloudflare KV binding for zero-knowledge encrypted vaults
+# Create your namespace with:
+#   npx wrangler kv namespace create EXPENSE_VAULTS
+# Then copy the id output and paste below:
+[[kv_namespaces]]
+binding = "EXPENSE_VAULTS"
+id = "EXPENSE_VAULTS_ID"

@@ -15,7 +15,12 @@ import {
   decryptPayload
 } from './crypto';
 import { mergeSyncPayload, pruneTombstones } from './merger';
-import { createLockerAdapter, DEFAULT_CLOUDFLARE_WORKER_URL } from './backend';
+import {
+  createLockerAdapter,
+  DEFAULT_CLOUDFLARE_WORKER_URL,
+  probeEndpoint,
+  type EndpointProbeResult
+} from './backend';
 
 const CONFIG_STORAGE_KEY = 'expense_tracker_sync_config_v1';
 const TOMBSTONES_STORAGE_KEY = 'expense_tracker_sync_tombstones_v1';
@@ -205,6 +210,14 @@ export class SyncManager {
     return url;
   }
 
+  getDefaultEndpoint(): string {
+    if (typeof localStorage !== 'undefined') {
+      const stored = localStorage.getItem('expense_tracker_sync_endpoint_override');
+      if (stored) return stored;
+    }
+    return DEFAULT_CLOUDFLARE_WORKER_URL;
+  }
+
   async createNewVault(provider: SyncProviderType = 'custom', endpoint?: string): Promise<SyncConfig> {
     const vaultId = generateVaultId();
     const secretKey = await generateSecretKey();
@@ -215,16 +228,41 @@ export class SyncManager {
       vaultId,
       secretKey,
       provider,
-      customEndpoint: endpoint || DEFAULT_CLOUDFLARE_WORKER_URL,
+      customEndpoint: endpoint || this.getDefaultEndpoint(),
       autoSync: true,
       deviceId
     };
 
     this.saveConfig(config);
 
-    // Initial push
-    await this.syncNow();
+    // Initial push (Local-First: do not throw or fail vault creation if remote endpoint is offline/undeployed)
+    try {
+      await this.syncNow();
+    } catch (pushErr: any) {
+      console.warn('[Sync] Vault created locally; initial remote sync pending:', pushErr.message);
+      this.setStatus(
+        'offline',
+        null,
+        'Vault created locally. Remote sync endpoint unreachable (Cloudflare Worker not deployed yet or offline).'
+      );
+    }
     return config;
+  }
+
+  updateEndpoint(newEndpoint: string): void {
+    const cleanEndpoint = newEndpoint.trim();
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('expense_tracker_sync_endpoint_override', cleanEndpoint);
+    }
+    if (!this.config) return;
+    this.config.customEndpoint = cleanEndpoint;
+    this.saveConfig(this.config);
+    this.schedulePush();
+  }
+
+  async testEndpointConnection(customUrl?: string): Promise<EndpointProbeResult> {
+    const target = customUrl || this.config?.customEndpoint || this.getDefaultEndpoint();
+    return probeEndpoint(target);
   }
 
   joinVault(vaultId: string, secretKey: string, provider: SyncProviderType = 'custom', endpoint?: string): SyncConfig {
@@ -282,7 +320,7 @@ export class SyncManager {
     if (!this.isConfigured() || !this.config) return;
     if (this.isSyncing) return;
 
-    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
       this.setStatus('offline', this.config.lastSyncedAt ? new Date(this.config.lastSyncedAt) : null);
       return;
     }
