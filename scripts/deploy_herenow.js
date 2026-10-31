@@ -183,7 +183,7 @@ export async function deploy(requestedSlug) {
 }
 
 if (process.argv[1] && process.argv[1].endsWith('deploy_herenow.js')) {
-  const targetSlug = process.argv[2] || process.env.HERENOW_SLUG || 'expense-tracker-vault';
+  const targetSlug = process.argv[2] || process.env.HERENOW_SLUG;
   deploy(targetSlug).catch(err => {
     console.error('Deployment error:', err.message);
     process.exit(1);
