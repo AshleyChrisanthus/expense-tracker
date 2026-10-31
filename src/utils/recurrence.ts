@@ -283,3 +283,76 @@ export function normalizeRecurringKey(description: string, descriptionTemplate?:
   const templated = extractDescriptionTemplate(source) || source;
   return templated.trim().toLowerCase();
 }
+
+/**
+ * Formats frequency badge according to Stitch design:
+ * e.g. "Weekly • Sun", "Monthly • 2nd", "Bi-weekly • Wed", "Monthly • 12th"
+ */
+export function formatFrequencyBadge(
+  rule?: RecurrenceRule,
+  dayOfWeek?: number,
+  dayOfMonth?: number
+): string {
+  if (!rule || rule === 'none') return 'Once';
+  if (rule === 'as_needed') return 'As Needed';
+  if (rule === 'daily') return 'Daily';
+
+  if (rule === 'weekly') {
+    if (dayOfWeek !== undefined && WEEKDAYS[dayOfWeek]) {
+      return `Weekly • ${WEEKDAYS[dayOfWeek].short}`;
+    }
+    return 'Weekly';
+  }
+
+  if (rule === 'biweekly') {
+    if (dayOfWeek !== undefined && WEEKDAYS[dayOfWeek]) {
+      return `Bi-weekly • ${WEEKDAYS[dayOfWeek].short}`;
+    }
+    return 'Bi-weekly';
+  }
+
+  if (rule === 'monthly') {
+    if (dayOfMonth !== undefined) {
+      return `Monthly • ${getOrdinalSuffix(dayOfMonth)}`;
+    }
+    return 'Monthly';
+  }
+
+  if (rule === 'yearly') {
+    if (dayOfMonth !== undefined) {
+      return `Yearly • ${getOrdinalSuffix(dayOfMonth)}`;
+    }
+    return 'Yearly';
+  }
+
+  return formatRecurrenceLabel(rule, dayOfWeek, dayOfMonth);
+}
+
+/**
+ * Formats relative due countdown indicator:
+ * e.g. "In 4d • Nov 1, 2026", "Due Today • Oct 31, 2026", "Overdue (2d) • Oct 29, 2026"
+ */
+export function formatDueCountdown(
+  dueInfo: ReturnType<typeof getRecurrenceDueInfo>
+): { text: string; status: 'today' | 'overdue' | 'soon' | 'future' } | null {
+  if (!dueInfo) return null;
+
+  if (dueInfo.isDueToday) {
+    return {
+      text: `Due Today • ${dueInfo.formattedDueDate}`,
+      status: 'today'
+    };
+  }
+
+  if (dueInfo.isOverdue) {
+    return {
+      text: `Overdue (${Math.abs(dueInfo.diffDays)}d) • ${dueInfo.formattedDueDate}`,
+      status: 'overdue'
+    };
+  }
+
+  return {
+    text: `In ${dueInfo.diffDays}d • ${dueInfo.formattedDueDate}`,
+    status: dueInfo.isDueSoon ? 'soon' : 'future'
+  };
+}

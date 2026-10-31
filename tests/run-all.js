@@ -18,6 +18,7 @@ const testFiles = [
   'path:/tier1-features/pwa-manifest-serviceworker.test.js',
   'path:/tier1-features/e2ee-cloud-sync.test.js',
   'path:/tier1-features/stitch-mobile-ui.test.js',
+  'path:/tier1-features/stitch-recurring-view.test.js',
 
   // Tier 2: Boundary & Corner Cases
   'path:/tier2-boundary/empty-and-edge-items.test.js',

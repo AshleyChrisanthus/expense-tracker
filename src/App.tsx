@@ -63,6 +63,7 @@ import { FinancialBreakdownCard } from './components/mobile/FinancialBreakdownCa
 import { VaultFooterBadge } from './components/mobile/VaultFooterBadge';
 import { BottomNavBar, MobileTab } from './components/mobile/BottomNavBar';
 import { AccountsView } from './components/mobile/AccountsView';
+import { MobileRecurringView } from './components/mobile/MobileRecurringView';
 import { 
   getRecurrenceDueInfo, 
   formatRecurrenceLabel, 
@@ -1107,182 +1108,34 @@ export const App: React.FC = () => {
             }}
           />
         ) : mobileTab === 'recurring' ? (
-          /* Dedicated Recurring Bills & Smart Templates Tab on Mobile */
-          <div className="space-y-4 pb-12">
-            <div className="apple-card p-4 bg-gradient-to-br from-[var(--bg-secondary)] to-purple-950/20 border-purple-500/20">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="p-2 rounded-xl bg-purple-500/15 text-purple-400">
-                    <Repeat className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <h2 className="text-base font-bold text-[var(--text-primary)]">
-                      Scheduled Bills & Smart Templates
-                    </h2>
-                    <p className="text-xs text-[var(--text-secondary)]">
-                      {upcomingRecurring.length} recurring schedules & on-demand templates
-                    </p>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setEditingTx({
-                      id: '',
-                      date: new Date().toISOString().split('T')[0],
-                      description: '',
-                      amount: 0,
-                      category: dataState.categories[0] || 'Uncategorized',
-                      paymentModeId: dataState.paymentModes[0]?.id || 'cash',
-                      type: 'expense',
-                      status: 'pending',
-                      recurrence: 'monthly',
-                      createdAt: Date.now()
-                    });
-                    setIsTxModalOpen(true);
-                  }}
-                  className="apple-btn apple-btn-secondary text-xs flex items-center gap-1 font-semibold text-[var(--accent)]"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>New Schedule</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Recurring cards grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-              {upcomingRecurring.map(({ item, effectiveDueDate, dueInfo, latestPayment }) => {
-                const isAsNeeded = item.recurrence === 'as_needed';
-                const isIncome = item.type === 'income';
-                const activeTemplate = item.descriptionTemplate || (hasEmbeddedAmountTemplate(item.description) ? extractDescriptionTemplate(item.description) : undefined);
-                const isVariable = Boolean(item.isVariableAmount || isAsNeeded || activeTemplate);
-                const typedAmount = recurringCustomAmounts[item.id] ?? '';
-                const fallbackAmt = latestPayment?.amount ?? item.amount;
-                const displayDescription = activeTemplate
-                  ? formatTemplatedDescription(activeTemplate, typedAmount, fallbackAmt)
-                  : item.description;
-
-                return (
-                  <div 
-                    key={item.id}
-                    className={`p-3.5 rounded-xl bg-[var(--bg-secondary)] border flex flex-col justify-between gap-3 transition-all shadow-sm ${
-                      isIncome
-                        ? 'border-emerald-500/25 hover:border-emerald-500/50'
-                        : 'border-[var(--border-light)] hover:border-purple-500/30'
-                    }`}
-                  >
-                    <div className="space-y-1">
-                      <div className="flex items-start justify-between gap-2 min-w-0">
-                        <span className="text-xs font-semibold text-[var(--text-primary)] break-words leading-snug" title={displayDescription}>
-                          {displayDescription}
-                        </span>
-                        <div className="flex items-center gap-1 shrink-0">
-                          {isIncome && (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 font-semibold">
-                              Income
-                            </span>
-                          )}
-                          <span className={`text-[10px] px-2 py-0.5 rounded font-medium ${
-                            isAsNeeded
-                              ? 'bg-amber-500/15 text-amber-400'
-                              : isIncome
-                              ? 'bg-emerald-500/15 text-emerald-400'
-                              : 'bg-purple-500/15 text-purple-400'
-                          }`}>
-                            {formatRecurrenceLabel(item.recurrence, item.recurrenceDayOfWeek, item.recurrenceDayOfMonth)}
-                          </span>
-                        </div>
-                      </div>
-                      {activeTemplate && (
-                        <div className="text-[10px] text-[var(--text-secondary)]">
-                          Template: typing amount below populates description &amp; amount
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="flex items-center justify-between gap-2 flex-wrap">
-                      {isVariable ? (
-                        <div className="flex items-center gap-1.5">
-                          <span className={`font-mono font-bold text-sm ${isIncome ? 'text-emerald-400' : 'text-rose-400'}`}>
-                            {isIncome ? '+$' : '$'}
-                          </span>
-                          <input
-                            type="number"
-                            step="0.01"
-                            min="0.01"
-                            value={typedAmount}
-                            onChange={(e) => setRecurringCustomAmounts(prev => ({ ...prev, [item.id]: e.target.value }))}
-                            placeholder={fallbackAmt.toFixed(2)}
-                            aria-label={`Enter amount for ${item.description}`}
-                            className={`apple-input py-1 px-2 text-xs font-mono font-bold w-28 ${
-                              isIncome
-                                ? 'text-emerald-400 border-emerald-500/30 focus:border-emerald-400'
-                                : 'text-rose-400 border-purple-500/30 focus:border-purple-400'
-                            }`}
-                          />
-                        </div>
-                      ) : (
-                        <span className={`font-mono font-bold text-sm ${isIncome ? 'text-emerald-400' : 'text-rose-400'}`}>
-                          {isIncome ? '+' : ''}${item.amount.toFixed(2)}
-                        </span>
-                      )}
-
-                      <div className="text-right">
-                        {isAsNeeded ? (
-                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/30 font-medium">
-                            On Demand
-                          </span>
-                        ) : dueInfo ? (
-                          dueInfo.isOverdue ? (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-rose-500/15 text-rose-400 border border-rose-500/30 font-medium flex items-center gap-1">
-                              <Clock className="w-2.5 h-2.5" /> Overdue ({Math.abs(dueInfo.diffDays)}d)
-                            </span>
-                          ) : dueInfo.isDueToday ? (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/30 font-medium flex items-center gap-1">
-                              <Bell className="w-2.5 h-2.5" /> Due Today
-                            </span>
-                          ) : dueInfo.isDueSoon ? (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-medium flex items-center gap-1">
-                              <Clock className="w-2.5 h-2.5" /> In {dueInfo.diffDays}d
-                            </span>
-                          ) : (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--bg-primary)] text-[var(--text-secondary)] border border-[var(--border-light)] font-medium">
-                              Due: {dueInfo.formattedDueDate}
-                            </span>
-                          )
-                        ) : null}
-                      </div>
-                    </div>
-
-                    <div className="flex items-center justify-between gap-1.5 pt-2 border-t border-[var(--border-light)]/60">
-                      <button
-                        onClick={() => handlePayRecurring(item, effectiveDueDate, 'today')}
-                        className={`text-xs px-2.5 py-1 rounded-lg font-medium transition-all flex items-center gap-1 ${
-                          isIncome
-                            ? 'bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25 border border-emerald-500/30'
-                            : 'bg-purple-500/15 text-purple-400 hover:bg-purple-500/25 border border-purple-500/30'
-                        }`}
-                        title={isIncome ? "Log income today" : "Log expense today"}
-                      >
-                        <Check className="w-3 h-3" />
-                        <span>Log Today</span>
-                      </button>
-
-                      {!isAsNeeded && (
-                        <button
-                          onClick={() => handlePayRecurring(item, effectiveDueDate, 'due')}
-                          className="text-[11px] px-2 py-1 rounded-lg font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-all"
-                          title="Log for scheduled due date"
-                        >
-                          Log for Due Date
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
+          /* Dedicated Recurring Bills & Smart Templates Mobile View (Issue #21) */
+          <MobileRecurringView
+            recurringItems={upcomingRecurring}
+            paymentModes={dataState.paymentModes}
+            customAmounts={recurringCustomAmounts}
+            onUpdateCustomAmount={(id: string, val: string) => setRecurringCustomAmounts(prev => ({ ...prev, [id]: val }))}
+            onPayRecurring={handlePayRecurring}
+            onEditRecurring={(tx: Transaction) => {
+              setEditingTx(tx);
+              setIsTxModalOpen(true);
+            }}
+            onAddNewRecurring={() => {
+              setEditingTx({
+                id: '',
+                date: new Date().toISOString().split('T')[0],
+                description: '',
+                amount: 0,
+                category: dataState.categories[0] || 'Rent & Housing',
+                paymentModeId: dataState.paymentModes[0]?.id || 'bank',
+                type: 'expense',
+                status: 'pending',
+                recurrence: 'monthly',
+                recurrenceDayOfMonth: 1,
+                createdAt: Date.now()
+              });
+              setIsTxModalOpen(true);
+            }}
+          />
         ) : (
           <>
             {/* Mobile Stitch Flow Summary, Search & Banner Chips */}
