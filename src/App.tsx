@@ -1990,19 +1990,19 @@ export const App: React.FC = () => {
             </div>
           ) : (() => {
             const showMultiTrack = bannerLineMode !== 'off' && activeFeedBanners.length > 0;
-            const gutterWidthPx = showMultiTrack ? Math.max(22, Math.min(activeFeedBanners.length * 16 + 10, 56)) : 0;
+            const gutterWidthPx = showMultiTrack ? Math.max(28, activeFeedBanners.length * 18 + 14) : 0;
 
             return (
               <div className="relative flex items-stretch">
                 {/* Continuous Multi-Track Metro/Git Vertical Lines in OUTER Left Gutter (Left of Date Headers & Cards) */}
                 {showMultiTrack && (
                   <div 
-                    className="relative shrink-0 select-none"
+                    className="relative shrink-0 select-none hidden sm:block"
                     style={{ width: `${gutterWidthPx}px` }}
                   >
                     {/* Continuous Vertical Lines running down the entire height of the feed */}
                     {activeFeedBanners.map((banner, bIdx) => {
-                      const lineLeftPx = bIdx * 16 + 8;
+                      const lineLeftPx = bIdx * 18 + 10;
                       return (
                         <div 
                           key={banner.id}
@@ -2077,7 +2077,7 @@ export const App: React.FC = () => {
                               {/* Horizontal Branch Connectors from the Outer Left Gutter into Card */}
                               {showMultiTrack && (
                                 <div 
-                                  className="absolute select-none pointer-events-none z-10"
+                                  className="absolute select-none pointer-events-none hidden sm:block z-10"
                                   style={{ 
                                     left: `-${gutterWidthPx}px`, 
                                     width: `${gutterWidthPx}px`,
@@ -2089,7 +2089,7 @@ export const App: React.FC = () => {
                                     const isLinked = activeTxBanners.some(b => b.id === banner.id);
                                     if (!isLinked) return null;
 
-                                    const lineLeftPx = bIdx * 16 + 8;
+                                    const lineLeftPx = bIdx * 18 + 10;
                                     const linkedIndex = activeTxBanners.findIndex(b => b.id === banner.id);
                                     const totalLinked = activeTxBanners.length;
                                     const topOffsetPercent = totalLinked === 1 ? 50 : Math.round(((linkedIndex + 1) / (totalLinked + 1)) * 100);
