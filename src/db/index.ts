@@ -230,3 +230,27 @@ export class ExpenseDB extends Dexie {
 }
 
 export const db = new ExpenseDB();
+
+/**
+ * Retrieve a setting from Dexie IndexedDB with fallback.
+ */
+export async function getSetting<T>(key: string, defaultValue: T): Promise<T> {
+  try {
+    const item = await db.settings.get(key);
+    return item ? (item.value as T) : defaultValue;
+  } catch {
+    return defaultValue;
+  }
+}
+
+/**
+ * Save a setting to Dexie IndexedDB.
+ */
+export async function setSetting<T>(key: string, value: T): Promise<void> {
+  try {
+    await db.settings.put({ key, value });
+  } catch (err) {
+    console.error('Failed to save setting to Dexie:', err);
+  }
+}
+

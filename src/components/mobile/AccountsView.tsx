@@ -264,8 +264,8 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
                 <Palette className="w-4 h-4" />
               </div>
               <div>
-                <div className="text-xs font-bold text-[var(--text-primary)]">Glassmorphic Theme Customizer</div>
-                <div className="text-[10px] text-[var(--text-secondary)]">Presets, dark/light modes & glass tokens</div>
+                <div className="text-xs font-bold text-[var(--text-primary)]">Theme &amp; Timezone Settings</div>
+                <div className="text-[10px] text-[var(--text-secondary)]">Presets, glass tokens &amp; local schedule clock</div>
               </div>
             </div>
           </button>

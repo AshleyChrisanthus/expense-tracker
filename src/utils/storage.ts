@@ -1,4 +1,5 @@
 import { PaymentMode, Transaction, ExpenseDataState, Banner } from '../types/expense';
+import { getLocalDateString } from './timezone';
 
 const STORAGE_KEY = 'expense_tracker_state_v2';
 
@@ -93,7 +94,7 @@ export function saveExpenseData(state: ExpenseDataState): void {
 export function exportToJsonFile(state: ExpenseDataState): void {
   const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(state, null, 2));
   const downloadAnchor = document.createElement('a');
-  const dateStr = new Date().toISOString().split('T')[0];
+  const dateStr = getLocalDateString();
   downloadAnchor.setAttribute("href", dataStr);
   downloadAnchor.setAttribute("download", `expenses-backup-${dateStr}.json`);
   document.body.appendChild(downloadAnchor);
@@ -137,7 +138,7 @@ export function mergeImportedState(current: ExpenseDataState, incoming: ExpenseD
 export function parseGoogleKeepText(text: string, currentModes: PaymentMode[]): Partial<Transaction>[] {
   const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
   const results: Partial<Transaction>[] = [];
-  let currentDate = new Date().toISOString().split('T')[0];
+  let currentDate = getLocalDateString();
 
   const monthNames: Record<string, string> = {
     january: '01', february: '02', march: '03', april: '04', may: '05', june: '06',

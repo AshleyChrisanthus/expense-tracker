@@ -6,7 +6,9 @@ import {
   Palette, 
   RotateCcw, 
   Check, 
-  Sparkles 
+  Sparkles,
+  Globe,
+  Clock
 } from 'lucide-react';
 import type { ThemeMode, ThemePreset } from '../types/theme';
 import { 
@@ -17,6 +19,14 @@ import {
   applyPresetPaletteForMode,
   applyCustomThemeProperties
 } from '../styles/theme';
+import {
+  COMMON_TIMEZONES,
+  getUserTimeZone,
+  setUserTimeZone,
+  getSystemTimeZone,
+  getCachedUserTimeZone,
+  formatLocalizedDateTime
+} from '../utils/timezone';
 
 interface ThemeModalProps {
   isOpen: boolean;
@@ -33,11 +43,14 @@ export const ThemeModal: React.FC<ThemeModalProps> = ({
 }) => {
   const [activePresetId, setActivePresetId] = useState<string>('default');
   const [customAccent, setCustomAccent] = useState<string>('');
+  const [userTimezone, setUserTimezone] = useState<string>(() => getCachedUserTimeZone());
+  const [timezoneNotice, setTimezoneNotice] = useState<{ success: boolean; message: string } | null>(null);
 
   useEffect(() => {
     if (isOpen) {
       const active = getActivePreset();
       setActivePresetId(active.id);
+      getUserTimeZone().then(tz => setUserTimezone(tz));
       
       const customColorsStr = localStorage.getItem(CUSTOM_THEME_KEY);
       if (customColorsStr) {
@@ -48,10 +61,33 @@ export const ThemeModal: React.FC<ThemeModalProps> = ({
           }
         } catch {}
       }
+    } else {
+      setTimezoneNotice(null);
     }
   }, [isOpen]);
 
   if (!isOpen) return null;
+
+  const handleTimezoneChange = async (tz: string) => {
+    setUserTimezone(tz);
+    await setUserTimeZone(tz);
+    setTimezoneNotice({
+      success: true,
+      message: `Timezone updated to ${tz}. Recalculation updated instantly.`
+    });
+    setTimeout(() => setTimezoneNotice(null), 3500);
+  };
+
+  const handleUseSystemTimezone = async () => {
+    const sysTz = getSystemTimeZone();
+    setUserTimezone(sysTz);
+    await setUserTimeZone(sysTz);
+    setTimezoneNotice({
+      success: true,
+      message: `Reset to system browser timezone (${sysTz}).`
+    });
+    setTimeout(() => setTimezoneNotice(null), 3500);
+  };
 
   const handleSelectPreset = (preset: ThemePreset) => {
     setActivePresetId(preset.id);
@@ -88,7 +124,7 @@ export const ThemeModal: React.FC<ThemeModalProps> = ({
       onClick={onClose}
     >
       <div 
-        className="glass-modal w-full max-w-lg rounded-2xl p-6 relative overflow-hidden text-left"
+        className="glass-modal w-full max-w-lg rounded-2xl p-6 relative overflow-hidden text-left max-h-[92vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -98,8 +134,8 @@ export const ThemeModal: React.FC<ThemeModalProps> = ({
               <Palette className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-lg font-semibold text-[var(--text-primary)]">Theme & Styling</h2>
-              <p className="text-xs text-[var(--text-secondary)]">Personalize your glassmorphic interface</p>
+              <h2 className="text-lg font-semibold text-[var(--text-primary)]">Theme &amp; Localization</h2>
+              <p className="text-xs text-[var(--text-secondary)]">Personalize your glassmorphic interface and timezone schedule</p>
             </div>
           </div>
           <button 
@@ -220,6 +256,65 @@ export const ThemeModal: React.FC<ThemeModalProps> = ({
               ))}
             </div>
           </div>
+        </div>
+
+        {/* Timezone & Localization Section (Issue #25) */}
+        <div className="p-3.5 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-light)] mb-6">
+          <div className="flex items-center justify-between mb-1.5">
+            <div className="flex items-center gap-2">
+              <Globe className="w-4 h-4 text-[var(--accent)]" />
+              <span className="text-xs font-semibold text-[var(--text-primary)]">Timezone &amp; Schedule Clock</span>
+            </div>
+            <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-[var(--accent-bg)] text-[var(--accent)] border border-[var(--accent)]/30 font-medium">
+              Live Local Time
+            </span>
+          </div>
+
+          <p className="text-xs text-[var(--text-secondary)] mb-3 leading-relaxed">
+            Recurring bills, due date countdowns, and Keep note parsers align with this schedule.
+          </p>
+
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 mb-2">
+            <select
+              value={userTimezone}
+              onChange={(e) => handleTimezoneChange(e.target.value)}
+              className="flex-1 px-3 py-2 bg-[var(--bg-primary)] border border-[var(--border-light)] rounded-xl text-xs text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)] font-medium cursor-pointer"
+            >
+              <option value={getSystemTimeZone()}>Auto-Detect (System: {getSystemTimeZone()})</option>
+              {COMMON_TIMEZONES.map(tz => (
+                <option key={tz.value} value={tz.value}>
+                  {tz.label}
+                </option>
+              ))}
+            </select>
+
+            <button
+              type="button"
+              onClick={handleUseSystemTimezone}
+              className="apple-btn apple-btn-secondary text-xs px-3 py-2 shrink-0 font-medium cursor-pointer"
+              title="Reset to system browser timezone"
+            >
+              Use System
+            </button>
+          </div>
+
+          {/* Current Local Date/Time Preview */}
+          <div className="flex items-center justify-between text-[11px] text-[var(--text-secondary)] px-2.5 py-1.5 rounded-lg bg-[var(--bg-primary)]/80 border border-[var(--border-light)]">
+            <div className="flex items-center gap-1.5">
+              <Clock className="w-3.5 h-3.5 text-[var(--accent)]" />
+              <span>Current Time:</span>
+            </div>
+            <span className="font-mono text-[var(--text-primary)] font-medium">
+              {formatLocalizedDateTime(Date.now(), userTimezone)}
+            </span>
+          </div>
+
+          {timezoneNotice && (
+            <div className="mt-2.5 p-2 rounded-lg text-xs flex items-center gap-2 bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 font-medium animate-in fade-in">
+              <Check className="w-3.5 h-3.5 shrink-0" />
+              <span>{timezoneNotice.message}</span>
+            </div>
+          )}
         </div>
 
         {/* Footer */}

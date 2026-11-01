@@ -34,6 +34,7 @@ import {
   formatDateDisplay,
   parseKeepSnippet
 } from '../utils/transactionSheet';
+import { getLocalDateString } from '../utils/timezone';
 
 interface TransactionModalProps {
   isOpen: boolean;
@@ -64,7 +65,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
 }) => {
   const [type, setType] = useState<TransactionType>('expense');
   const [amount, setAmount] = useState('');
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const [date, setDate] = useState(() => getLocalDateString());
   const [paymentModeId, setPaymentModeId] = useState(modes[0]?.id || 'bank');
   const [toPaymentModeId, setToPaymentModeId] = useState(modes[1]?.id || 'forex');
   const [fee, setFee] = useState('');
@@ -141,7 +142,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
     } else {
       setType('expense');
       setAmount('');
-      const todayStr = new Date().toISOString().split('T')[0];
+      const todayStr = getLocalDateString();
       setDate(todayStr);
       setPaymentModeId(modes[0]?.id || 'bank');
       setToPaymentModeId(modes[1]?.id || 'forex');

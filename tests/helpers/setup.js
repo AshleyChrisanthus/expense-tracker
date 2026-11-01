@@ -27,7 +27,24 @@ globalThis.localStorage = {
 // Polyfill minimal document / DOM
 const domAttributes = new Map();
 const domStyles = new Map();
+const docEventListeners = new Map();
+const winEventListeners = new Map();
+
 globalThis.document = {
+  visibilityState: 'visible',
+  hidden: false,
+  addEventListener: (event, handler) => {
+    if (!docEventListeners.has(event)) docEventListeners.set(event, new Set());
+    docEventListeners.get(event).add(handler);
+  },
+  removeEventListener: (event, handler) => {
+    if (docEventListeners.has(event)) docEventListeners.get(event).delete(handler);
+  },
+  dispatchEvent: (event) => {
+    const type = typeof event === 'string' ? event : event.type;
+    const handlers = docEventListeners.get(type);
+    if (handlers) handlers.forEach(fn => fn(event));
+  },
   documentElement: {
     setAttribute: (k, v) => domAttributes.set(k, String(v)),
     getAttribute: (k) => domAttributes.get(k) || null,
@@ -57,6 +74,24 @@ globalThis.document = {
 
 // Polyfill window
 globalThis.window = globalThis;
+if (!globalThis.addEventListener) {
+  globalThis.addEventListener = (event, handler) => {
+    if (!winEventListeners.has(event)) winEventListeners.set(event, new Set());
+    winEventListeners.get(event).add(handler);
+  };
+}
+if (!globalThis.removeEventListener) {
+  globalThis.removeEventListener = (event, handler) => {
+    if (winEventListeners.has(event)) winEventListeners.get(event).delete(handler);
+  };
+}
+if (!globalThis.dispatchEvent) {
+  globalThis.dispatchEvent = (event) => {
+    const type = typeof event === 'string' ? event : event.type;
+    const handlers = winEventListeners.get(type);
+    if (handlers) handlers.forEach(fn => fn(event));
+  };
+}
 if (!globalThis.URL.createObjectURL) {
   globalThis.URL.createObjectURL = () => 'blob:mock-url-' + Math.random().toString(36).slice(2);
   globalThis.URL.revokeObjectURL = () => {};
@@ -119,6 +154,22 @@ export async function getAnalyticsModule() {
   return await import('../../src/utils/analytics.js');
 }
 
+export async function getTimezoneModule() {
+  const tsPath = path.resolve(process.cwd(), 'src/utils/timezone.ts');
+  if (fs.existsSync(tsPath)) {
+    return await import('../../src/utils/timezone.ts');
+  }
+  return await import('../../src/utils/timezone.js');
+}
+
+export async function getLiveTickerModule() {
+  const tsPath = path.resolve(process.cwd(), 'src/hooks/useLiveTicker.ts');
+  if (fs.existsSync(tsPath)) {
+    return await import('../../src/hooks/useLiveTicker.ts');
+  }
+  return await import('../../src/hooks/useLiveTicker.js');
+}
+
 export async function getSyncModules() {
   const crypto = await import('../../src/services/sync/crypto.ts');
   const merger = await import('../../src/services/sync/merger.ts');
@@ -146,6 +197,12 @@ export async function resetDatabase() {
   domAttributes.clear();
   domStyles.clear();
   globalThis.importMetaEnv = {};
+  try {
+    const liveTicker = await getLiveTickerModule();
+    if (liveTicker.stopTicker) {
+      liveTicker.stopTicker();
+    }
+  } catch {}
 }
 
 // Mock Fetch Helper for deterministic unit/e2e testing

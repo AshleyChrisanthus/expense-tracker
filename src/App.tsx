@@ -76,8 +76,13 @@ import {
   formatTemplatedDescription,
   normalizeRecurringKey
 } from './utils/recurrence';
+import { useLiveTicker } from './hooks/useLiveTicker';
+import { getLocalDateString } from './utils/timezone';
 
 export const App: React.FC = () => {
+  // Live ticker for visibility/focus resume and 1-minute foreground recalculation (Issues #25 & #26)
+  const liveTick = useLiveTicker();
+
   // Theme state
   const [currentMode, setCurrentMode] = useState<ThemeMode>(() => {
     return (localStorage.getItem('app_theme') as ThemeMode) || 'dark';
@@ -341,7 +346,7 @@ export const App: React.FC = () => {
 
   // 1-Click Repeat transaction for today
   const handleRepeatTransaction = async (tx: Transaction) => {
-    const today = new Date().toISOString().split('T')[0];
+    const today = getLocalDateString(liveTick);
     const isWeek = tx.recurrence === 'weekly' || tx.recurrence === 'biweekly';
     const isMonth = tx.recurrence === 'monthly';
     const isScheduled = tx.recurrence && tx.recurrence !== 'none' && tx.recurrence !== 'as_needed';
@@ -374,7 +379,7 @@ export const App: React.FC = () => {
     logDateMode: 'today' | 'due' = 'today',
     overrideAmountStr?: string
   ) => {
-    const today = new Date().toISOString().split('T')[0];
+    const today = getLocalDateString(liveTick);
     const isAsNeeded = tx.recurrence === 'as_needed';
     const isWeek = tx.recurrence === 'weekly' || tx.recurrence === 'biweekly';
     const isMonth = tx.recurrence === 'monthly';
@@ -791,7 +796,7 @@ export const App: React.FC = () => {
         }
       }
 
-      const dueInfo = getRecurrenceDueInfo(effectiveDueDate);
+      const dueInfo = getRecurrenceDueInfo(effectiveDueDate, undefined, liveTick);
       return {
         item,
         effectiveDueDate,
@@ -804,7 +809,7 @@ export const App: React.FC = () => {
       if (!b.effectiveDueDate) return -1;
       return a.effectiveDueDate.localeCompare(b.effectiveDueDate);
     });
-  }, [dataState.transactions]);
+  }, [dataState.transactions, liveTick]);
 
   // Group transactions by Date (like Google Keep notes format)
   const groupedTransactions = useMemo(() => {
@@ -1150,7 +1155,7 @@ export const App: React.FC = () => {
             onAddNewRecurring={() => {
               setEditingTx({
                 id: '',
-                date: new Date().toISOString().split('T')[0],
+                date: getLocalDateString(liveTick),
                 description: '',
                 amount: 0,
                 category: dataState.categories[0] || 'Rent & Housing',
@@ -2265,7 +2270,7 @@ export const App: React.FC = () => {
                                       )}
 
                                       {tx.recurrence && tx.recurrence !== 'none' && (() => {
-                                        const dueInfo = getRecurrenceDueInfo(tx.nextDueDate);
+                                        const dueInfo = getRecurrenceDueInfo(tx.nextDueDate, undefined, liveTick);
                                         if (!dueInfo) return null;
                                         if (dueInfo.isOverdue) {
                                           return (

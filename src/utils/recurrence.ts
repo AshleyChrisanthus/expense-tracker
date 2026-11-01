@@ -1,4 +1,5 @@
 import type { RecurrenceRule } from '../types/expense';
+import { getLocalDateString } from './timezone';
 
 export const WEEKDAYS = [
   { value: 0, label: 'Sunday', short: 'Sun' },
@@ -134,10 +135,12 @@ export function getNextFutureDueDate(
   baseDateStr: string, 
   rule: RecurrenceRule, 
   dayOfWeek?: number, 
-  dayOfMonth?: number
+  dayOfMonth?: number,
+  referenceDateStr?: string,
+  nowTime?: number | Date
 ): string {
   if (!rule || rule === 'none' || rule === 'as_needed') return baseDateStr;
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = referenceDateStr || getLocalDateString(nowTime);
   let cur = baseDateStr;
   let count = 0;
   while (cur < todayStr && count < 100) {
@@ -149,10 +152,14 @@ export function getNextFutureDueDate(
   return cur;
 }
 
-export function getRecurrenceDueInfo(dueDateStr?: string, referenceDateStr?: string) {
+export function getRecurrenceDueInfo(
+  dueDateStr?: string, 
+  referenceDateStr?: string,
+  nowTime?: number | Date
+) {
   if (!dueDateStr) return null;
 
-  const todayStr = referenceDateStr || new Date().toISOString().split('T')[0];
+  const todayStr = referenceDateStr || getLocalDateString(nowTime);
   const [tY, tM, tD] = todayStr.split('-').map(Number);
   const [dY, dM, dD] = dueDateStr.split('-').map(Number);
 

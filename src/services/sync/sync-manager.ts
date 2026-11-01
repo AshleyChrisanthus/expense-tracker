@@ -476,11 +476,14 @@ export class SyncManager {
 
     // Periodic heartbeat sync every 3 minutes while tab is active in foreground
     if (typeof window !== 'undefined' && typeof window.setInterval === 'function') {
-      window.setInterval(() => {
+      const timer = window.setInterval(() => {
         if (this.isConfigured() && typeof document !== 'undefined' && document.visibilityState === 'visible') {
           this.syncNow().catch(() => {});
         }
       }, 3 * 60 * 1000);
+      if (timer && typeof (timer as any).unref === 'function') {
+        (timer as any).unref();
+      }
     }
   }
 }
