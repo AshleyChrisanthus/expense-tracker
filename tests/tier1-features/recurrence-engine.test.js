@@ -150,4 +150,139 @@ describe('Tier 1: Recurrence & Due Date Engine', () => {
     // as_needed does not advance due dates
     assert.equal(computeNextDueDate('2026-10-28', 'as_needed'), '2026-10-28');
   });
+
+  it('should detect existing recurring payments on target date and reconcile due dates past already-paid dates (Issue #25)', async () => {
+    const {
+      hasExistingRecurringPaymentOnDate,
+      reconcileEffectiveDueDate,
+      normalizeRecurringKey
+    } = await getRecurrenceModule();
+
+    const rentKey = normalizeRecurringKey('Room Rent');
+    const transactions = [
+      { id: 'tx-1', date: '2026-11-08', description: 'Room Rent', status: 'completed' },
+      { id: 'tx-2', date: '2026-11-15', description: 'Room Rent', status: 'completed' },
+      { id: 'tx-3', date: '2026-11-22', description: 'Room Rent', status: 'cancelled' },
+      { id: 'tx-4', date: '2026-11-15', description: 'Groceries', status: 'completed' }
+    ];
+
+    assert.equal(hasExistingRecurringPaymentOnDate(transactions, rentKey, '2026-11-15'), true);
+    assert.equal(hasExistingRecurringPaymentOnDate(transactions, rentKey, '2026-11-22'), false);
+    assert.equal(hasExistingRecurringPaymentOnDate(transactions, rentKey, '2026-11-29'), false);
+
+    // If baseDueDate is 2026-11-08 or 2026-11-15 and completed records exist for both,
+    // reconcileEffectiveDueDate must advance past both to 2026-11-22 (not show overdue on 11-08/11-15).
+    const completedDates = new Set(['2026-11-08', '2026-11-15']);
+    assert.equal(
+      reconcileEffectiveDueDate('2026-11-08', 'weekly', completedDates, '2026-11-15', 0),
+      '2026-11-22'
+    );
+    assert.equal(
+      reconcileEffectiveDueDate('2026-11-15', 'weekly', completedDates, '2026-11-15', 0),
+      '2026-11-22'
+    );
+
+    // If the ONLY payment for 2026-11-15 was deleted, completedDates only has 2026-11-08,
+    // so 2026-11-15 is legitimately unpaid and returned as the effective due date.
+    const afterOnlyPaymentDeleted = new Set(['2026-11-08']);
+    assert.equal(
+      reconcileEffectiveDueDate('2026-11-22', 'weekly', afterOnlyPaymentDeleted, '2026-11-08', 0),
+      '2026-11-15'
+    );
+
+    // Transactions with undefined status (legacy/imported) count as completed
+    assert.equal(
+      hasExistingRecurringPaymentOnDate(
+        [{ date: '2026-11-15', description: 'Room Rent' }],
+        rentKey,
+        '2026-11-15'
+      ),
+      true
+    );
+
+    // Stale baseDueDate (2026-11-08) when a payment already exists on 2026-11-15 must advance to 2026-11-22
+    assert.equal(
+      reconcileEffectiveDueDate('2026-11-08', 'weekly', new Set(['2026-11-15']), '2026-11-15', 0),
+      '2026-11-22'
+    );
+  });
+
+  it('should build repeated transactions for a chosen target date (Issue #26)', async () => {
+    const { buildRepeatedTransaction } = await getRecurrenceModule();
+
+    const oneOffTx = {
+      id: 'tx-orig-1',
+      date: '2026-11-10',
+      description: 'Coffee',
+      amount: 5.5,
+      type: 'expense',
+      category: 'Food',
+      paymentModeId: 'pm-card',
+      recurrence: 'none',
+      status: 'completed',
+      createdAt: 1000
+    };
+
+    const repeatedOneOff = buildRepeatedTransaction(oneOffTx, '2026-11-13', 9999);
+    assert.equal(repeatedOneOff.id, 'tx-9999');
+    assert.equal(repeatedOneOff.date, '2026-11-13');
+    assert.equal(repeatedOneOff.status, 'completed');
+    assert.equal(repeatedOneOff.description, 'Coffee');
+    assert.equal(repeatedOneOff.amount, 5.5);
+    assert.equal(repeatedOneOff.nextDueDate, undefined);
+    assert.equal(repeatedOneOff.createdAt, 9999);
+
+    const weeklyTx = {
+      id: 'tx-orig-2',
+      date: '2026-11-08',
+      description: 'Room Rent',
+      amount: 200,
+      type: 'expense',
+      category: 'Housing',
+      paymentModeId: 'pm-bank',
+      recurrence: 'weekly',
+      recurrenceDayOfWeek: 0,
+      status: 'completed',
+      createdAt: 2000
+    };
+
+    // Repeating for 2026-11-15 (Sunday) computes nextDueDate from 2026-11-15 -> 2026-11-22
+    const repeatedWeekly = buildRepeatedTransaction(weeklyTx, '2026-11-15', 10001);
+    assert.equal(repeatedWeekly.date, '2026-11-15');
+    assert.equal(repeatedWeekly.nextDueDate, '2026-11-22');
+
+    // Repeating with an overridden amount preserves plain description and updates amount
+    const uberTx = {
+      ...oneOffTx,
+      id: 'tx-orig-3',
+      description: 'Uber ride from work',
+      amount: 24.5
+    };
+    const repeatedUber = buildRepeatedTransaction(uberTx, '2026-11-14', 10002, 27.85);
+    assert.equal(repeatedUber.date, '2026-11-14');
+    assert.equal(repeatedUber.amount, 27.85);
+    assert.equal(repeatedUber.description, 'Uber ride from work');
+
+    // Repeating with an overridden amount updates embedded amount template in description
+    const templatedTx = {
+      ...oneOffTx,
+      id: 'tx-orig-4',
+      description: 'Uber ride $24.50 from work',
+      amount: 24.5
+    };
+    const repeatedTemplated = buildRepeatedTransaction(templatedTx, '2026-11-14', 10003, 29.10);
+    assert.equal(repeatedTemplated.amount, 29.10);
+    assert.equal(repeatedTemplated.description, 'Uber ride $29.1 from work');
+
+    // Repeating with an explicit overridden description uses the new description directly
+    const repeatedCustomDesc = buildRepeatedTransaction(
+      uberTx,
+      '2026-11-14',
+      10004,
+      31.25,
+      'Uber ride to airport'
+    );
+    assert.equal(repeatedCustomDesc.amount, 31.25);
+    assert.equal(repeatedCustomDesc.description, 'Uber ride to airport');
+  });
 });

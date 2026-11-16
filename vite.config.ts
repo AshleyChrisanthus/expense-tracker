@@ -88,6 +88,43 @@ function localExportPlugin() {
           return;
         }
 
+        if (req.url === '/api/exports/delete' && req.method === 'POST') {
+          try {
+            let body = '';
+            req.on('data', (chunk: any) => {
+              body += chunk;
+            });
+            req.on('end', () => {
+              try {
+                const data = JSON.parse(body);
+                const safeFilename = path.basename(String(data.filename || ''));
+                if (!safeFilename.endsWith('.json')) {
+                  res.statusCode = 400;
+                  res.setHeader('Content-Type', 'application/json');
+                  res.end(JSON.stringify({ success: false, error: 'Invalid filename' }));
+                  return;
+                }
+                const filePath = path.join(exportsDir, safeFilename);
+                if (fs.existsSync(filePath)) {
+                  fs.unlinkSync(filePath);
+                }
+                res.statusCode = 200;
+                res.setHeader('Content-Type', 'application/json');
+                res.end(JSON.stringify({ success: true, filename: safeFilename }));
+              } catch (err: any) {
+                res.statusCode = 400;
+                res.setHeader('Content-Type', 'application/json');
+                res.end(JSON.stringify({ success: false, error: err.message }));
+              }
+            });
+          } catch (err: any) {
+            res.statusCode = 500;
+            res.setHeader('Content-Type', 'application/json');
+            res.end(JSON.stringify({ success: false, error: err.message }));
+          }
+          return;
+        }
+
         next();
       });
     }

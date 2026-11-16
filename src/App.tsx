@@ -11,6 +11,7 @@ import {
   TrendingUp, 
   ArrowRightLeft, 
   Calendar, 
+  CalendarPlus,
   Trash2, 
   Edit3, 
   Wallet, 
@@ -37,7 +38,8 @@ import {
   Home,
   Utensils,
   Bike,
-  ShoppingBag
+  ShoppingBag,
+  FileText
 } from 'lucide-react';
 
 import { ThemeMode } from './types/theme';
@@ -46,10 +48,12 @@ import { ThemeModal } from './components/ThemeModal';
 import { Transaction, PaymentMode, ExpenseDataState, Banner } from './types/expense';
 import { loadExpenseData, saveExpenseData, DEFAULT_BANNERS } from './utils/storage';
 import { TransactionModal } from './components/TransactionModal';
+import { RepeatDateModal } from './components/RepeatDateModal';
 import { PaymentModesModal } from './components/PaymentModesModal';
 import { CategoriesModal } from './components/CategoriesModal';
 import { BannersModal } from './components/BannersModal';
 import { ImportExportModal } from './components/ImportExportModal';
+import { KeepExportModal } from './components/KeepExportModal';
 import { VisualAnalytics } from './components/VisualAnalytics';
 import { SyncModal } from './components/SyncModal';
 import { syncManager } from './services/sync/sync-manager';
@@ -65,7 +69,16 @@ import { BottomNavBar, MobileTab } from './components/mobile/BottomNavBar';
 import { AccountsView } from './components/mobile/AccountsView';
 import { MobileRecurringView } from './components/mobile/MobileRecurringView';
 import { MobileAnalyticsView } from './components/mobile/MobileAnalyticsView';
-import { downloadExportToBrowser } from './services/exportService';
+import { downloadExportToBrowser, saveAutoBackupSilent, cleanupOldAutoBackups } from './services/exportService';
+import {
+  AutoBackupSettings,
+  DEFAULT_AUTO_BACKUP_SETTINGS,
+  getAutoBackupSettings,
+  isScheduledBackupDue,
+  isCountBackupDue,
+  recordBackupSuccess,
+  incrementTransactionCounter
+} from './services/autoBackupService';
 import { 
   getRecurrenceDueInfo, 
   formatRecurrenceLabel, 
@@ -74,7 +87,10 @@ import {
   hasEmbeddedAmountTemplate,
   extractDescriptionTemplate,
   formatTemplatedDescription,
-  normalizeRecurringKey
+  normalizeRecurringKey,
+  hasExistingRecurringPaymentOnDate,
+  reconcileEffectiveDueDate,
+  buildRepeatedTransaction
 } from './utils/recurrence';
 import { useLiveTicker } from './hooks/useLiveTicker';
 import { getLocalDateString } from './utils/timezone';
@@ -115,6 +131,7 @@ export const App: React.FC = () => {
   // Multi-selection & Connective line states
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [selectedTxIds, setSelectedTxIds] = useState<Set<string>>(new Set());
+  const [isKeepExportOpen, setIsKeepExportOpen] = useState(false);
   // Banner Line Mode: 'all' | 'recurring' | 'custom' | 'off'
   const [bannerLineMode, setBannerLineMode] = useState<'all' | 'recurring' | 'custom' | 'off'>('all');
   const [customBannerLineIds, setCustomBannerLineIds] = useState<string[]>([]);
@@ -217,9 +234,91 @@ export const App: React.FC = () => {
   }, []);
 
   // Sync manager integration & URL hash pairing (#sync=v1:...)
+  const dataStateRef = React.useRef<ExpenseDataState>(dataState);
   useEffect(() => {
+    dataStateRef.current = dataState;
     syncManager.setStateProvider(() => dataState);
   }, [dataState]);
+
+  // Automated backup state & scheduler
+  const [autoBackupSettings, setAutoBackupSettings] = useState<AutoBackupSettings>(DEFAULT_AUTO_BACKUP_SETTINGS);
+  const autoBackupSettingsRef = React.useRef<AutoBackupSettings>(DEFAULT_AUTO_BACKUP_SETTINGS);
+  const [pendingBackupPrompt, setPendingBackupPrompt] = useState(false);
+  const isAutoBackingUpRef = React.useRef(false);
+
+  useEffect(() => {
+    autoBackupSettingsRef.current = autoBackupSettings;
+  }, [autoBackupSettings]);
+
+  useEffect(() => {
+    getAutoBackupSettings().then(loaded => {
+      autoBackupSettingsRef.current = loaded;
+      setAutoBackupSettings(loaded);
+    });
+  }, []);
+
+  const triggerAutoBackup = React.useCallback(async (
+    stateSnapshot: ExpenseDataState,
+    settingsSnapshot: AutoBackupSettings,
+    allowPrompt: boolean
+  ) => {
+    if (isAutoBackingUpRef.current) return;
+    isAutoBackingUpRef.current = true;
+    try {
+      const res = await saveAutoBackupSilent(stateSnapshot, allowPrompt);
+      if (res.success) {
+        const updated = await recordBackupSuccess(settingsSnapshot);
+        autoBackupSettingsRef.current = updated;
+        setAutoBackupSettings(updated);
+        setPendingBackupPrompt(false);
+
+        if (updated.cleanupEnabled) {
+          await cleanupOldAutoBackups(updated.cleanupRetentionCount);
+        }
+
+        setToastMessage(`Auto-backup saved (${res.filename})`);
+        setTimeout(() => setToastMessage(null), 3500);
+      } else if (res.needsPermission) {
+        setPendingBackupPrompt(true);
+      }
+    } catch (err) {
+      console.warn('Auto-backup error:', err);
+    } finally {
+      isAutoBackingUpRef.current = false;
+    }
+  }, []);
+
+  const handleManualBackupRecorded = React.useCallback(async () => {
+    const updated = await recordBackupSuccess(autoBackupSettingsRef.current);
+    autoBackupSettingsRef.current = updated;
+    setAutoBackupSettings(updated);
+    setPendingBackupPrompt(false);
+  }, []);
+
+  useEffect(() => {
+    const checkSchedule = () => {
+      const currentSettings = autoBackupSettingsRef.current;
+      if (isScheduledBackupDue(currentSettings, new Date())) {
+        triggerAutoBackup(dataStateRef.current, currentSettings, false);
+      }
+    };
+
+    checkSchedule();
+    const intervalId = window.setInterval(checkSchedule, 60_000);
+    const onFocusOrVisible = () => {
+      if (document.visibilityState === 'visible') {
+        checkSchedule();
+      }
+    };
+    window.addEventListener('focus', checkSchedule);
+    document.addEventListener('visibilitychange', onFocusOrVisible);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener('focus', checkSchedule);
+      document.removeEventListener('visibilitychange', onFocusOrVisible);
+    };
+  }, [autoBackupSettings.scheduledEnabled, autoBackupSettings.scheduleFrequency, autoBackupSettings.scheduleTime, autoBackupSettings.scheduleWeeklyDay, autoBackupSettings.customIntervalValue, autoBackupSettings.customIntervalUnit, triggerAutoBackup]);
 
   useEffect(() => {
     const unsubStatus = syncManager.onStatusChange((s) => {
@@ -302,24 +401,32 @@ export const App: React.FC = () => {
       console.error('Dexie save transaction failed:', e);
     }
 
-    setDataState(prev => {
-      const exists = prev.transactions.some(t => t.id === txToSave.id);
-      const newTransactions = exists
-        ? prev.transactions.map(t => t.id === txToSave.id ? txToSave : t)
-        : [txToSave, ...prev.transactions];
+    const prev = dataStateRef.current;
+    const exists = prev.transactions.some(t => t.id === txToSave.id);
+    const newTransactions = exists
+      ? prev.transactions.map(t => t.id === txToSave.id ? txToSave : t)
+      : [txToSave, ...prev.transactions];
 
-      const newCategories = txToSave.category && !prev.categories.includes(txToSave.category)
-        ? [...prev.categories, txToSave.category]
-        : prev.categories;
+    const newCategories = txToSave.category && !prev.categories.includes(txToSave.category)
+      ? [...prev.categories, txToSave.category]
+      : prev.categories;
 
-      return {
-        ...prev,
-        transactions: newTransactions,
-        categories: newCategories
-      };
-    });
+    const nextState: ExpenseDataState = {
+      ...prev,
+      transactions: newTransactions,
+      categories: newCategories
+    };
+    dataStateRef.current = nextState;
+    setDataState(nextState);
 
     syncManager.schedulePush();
+
+    const nextSettings = await incrementTransactionCounter(autoBackupSettingsRef.current, 1);
+    autoBackupSettingsRef.current = nextSettings;
+    setAutoBackupSettings(nextSettings);
+    if (isCountBackupDue(nextSettings)) {
+      await triggerAutoBackup(nextState, nextSettings, true);
+    }
   };
 
   const handleDeleteTransaction = async (id: string) => {
@@ -332,43 +439,50 @@ export const App: React.FC = () => {
 
       syncManager.recordDeletion(id, 'transaction');
 
-      setDataState(prev => ({
+      const prev = dataStateRef.current;
+      const nextState: ExpenseDataState = {
         ...prev,
         transactions: prev.transactions.filter(t => t.id !== id)
-      }));
+      };
+      dataStateRef.current = nextState;
+      setDataState(nextState);
+
+      const nextSettings = await incrementTransactionCounter(autoBackupSettingsRef.current, 1);
+      autoBackupSettingsRef.current = nextSettings;
+      setAutoBackupSettings(nextSettings);
+      if (isCountBackupDue(nextSettings)) {
+        await triggerAutoBackup(nextState, nextSettings, true);
+      }
     }
   };
 
   // Toast notification state
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [repeatDateTx, setRepeatDateTx] = useState<Transaction | null>(null);
   // Inline custom amounts typed on variable-amount / on-demand recurring reminder cards
   const [recurringCustomAmounts, setRecurringCustomAmounts] = useState<Record<string, string>>({});
 
   // 1-Click Repeat transaction for today
   const handleRepeatTransaction = async (tx: Transaction) => {
     const today = getLocalDateString(liveTick);
-    const isWeek = tx.recurrence === 'weekly' || tx.recurrence === 'biweekly';
-    const isMonth = tx.recurrence === 'monthly';
-    const isScheduled = tx.recurrence && tx.recurrence !== 'none' && tx.recurrence !== 'as_needed';
-
-    const newTx: Transaction = {
-      ...tx,
-      id: 'tx-' + Date.now(),
-      date: today,
-      status: 'completed',
-      nextDueDate: isScheduled
-        ? computeNextDueDate(
-            today, 
-            tx.recurrence!, 
-            isWeek ? tx.recurrenceDayOfWeek : undefined, 
-            isMonth ? tx.recurrenceDayOfMonth : undefined
-          )
-        : undefined,
-      createdAt: Date.now()
-    };
+    const newTx = buildRepeatedTransaction(tx, today);
 
     await handleSaveTransaction(newTx);
     setToastMessage(`Repeated "${tx.description}" ($${tx.amount.toFixed(2)}) for today!`);
+    setTimeout(() => setToastMessage(null), 3500);
+  };
+
+  // Repeat transaction for a user-selected date (with optional edited amount and description)
+  const handleRepeatTransactionOnDate = async (
+    tx: Transaction,
+    targetDate: string,
+    targetAmount?: number,
+    targetDescription?: string
+  ) => {
+    const newTx = buildRepeatedTransaction(tx, targetDate, Date.now(), targetAmount, targetDescription);
+
+    await handleSaveTransaction(newTx);
+    setToastMessage(`Repeated "${newTx.description}" ($${newTx.amount.toFixed(2)}) for ${targetDate}!`);
     setTimeout(() => setToastMessage(null), 3500);
   };
 
@@ -398,6 +512,35 @@ export const App: React.FC = () => {
     const targetDate = (!isAsNeeded && logDateMode === 'due')
       ? (currentEffectiveDueDate || tx.nextDueDate || today) 
       : today;
+
+    // Prevent duplicate logging when a completed record for this recurring item already exists on targetDate
+    const recurringKey = normalizeRecurringKey(finalDescription, activeTemplate || tx.descriptionTemplate);
+    if (!isAsNeeded && hasExistingRecurringPaymentOnDate(dataState.transactions, recurringKey, targetDate)) {
+      const nextDate = computeNextDueDate(
+        targetDate,
+        tx.recurrence || 'weekly',
+        isWeek ? tx.recurrenceDayOfWeek : undefined,
+        isMonth ? tx.recurrenceDayOfMonth : undefined
+      );
+
+      if (!tx.nextDueDate || tx.nextDueDate <= targetDate) {
+        await handleSaveTransaction({
+          ...tx,
+          nextDueDate: nextDate
+        });
+      }
+
+      setRecurringCustomAmounts(prev => {
+        if (!(tx.id in prev)) return prev;
+        const next = { ...prev };
+        delete next[tx.id];
+        return next;
+      });
+
+      setToastMessage(`"${finalDescription}" is already logged for ${targetDate}. Next due: ${nextDate}`);
+      setTimeout(() => setToastMessage(null), 3500);
+      return;
+    }
 
     // 1. Log payment/income instance for targetDate
     const newTx: Transaction = {
@@ -452,6 +595,7 @@ export const App: React.FC = () => {
     try {
       const res = downloadExportToBrowser(dataState);
       if (res.success) {
+        handleManualBackupRecorded();
         const sizeStr = res.fileSize ? ` (${(res.fileSize / 1024).toFixed(1)} KB)` : '';
         setToastMessage(`Data Vault exported${sizeStr}`);
         setTimeout(() => setToastMessage(null), 3500);
@@ -737,16 +881,23 @@ export const App: React.FC = () => {
   // Upcoming recurring expenses & income templates for notifications & reminders
   const upcomingRecurring = useMemo(() => {
     const recurringMap = new Map<string, Transaction>();
-    // Track latest completed payment date and amount per normalized key
+    // Track latest completed payment date and amount per normalized key, plus all completed dates
     const latestPaymentMap = new Map<string, { date: string; amount: number; description: string }>();
+    const completedDatesMap = new Map<string, Set<string>>();
 
     dataState.transactions.forEach(t => {
       const key = normalizeRecurringKey(t.description, t.descriptionTemplate);
-      if (t.status === 'completed' && t.date) {
+      if ((!t.status || t.status === 'completed') && t.date) {
         const prevPayment = latestPaymentMap.get(key);
         if (!prevPayment || t.date > prevPayment.date) {
           latestPaymentMap.set(key, { date: t.date, amount: t.amount, description: t.description });
         }
+        let dateSet = completedDatesMap.get(key);
+        if (!dateSet) {
+          dateSet = new Set<string>();
+          completedDatesMap.set(key, dateSet);
+        }
+        dateSet.add(t.date);
       }
 
       if (t.recurrence && t.recurrence !== 'none' && t.status !== 'cancelled') {
@@ -764,6 +915,7 @@ export const App: React.FC = () => {
       const key = normalizeRecurringKey(item.description, item.descriptionTemplate);
       const latestPayment = latestPaymentMap.get(key);
       const latestPaymentDate = latestPayment?.date;
+      const completedDates = completedDatesMap.get(key);
 
       if (isAsNeeded) {
         return {
@@ -774,27 +926,22 @@ export const App: React.FC = () => {
         };
       }
 
-      let effectiveDueDate = item.nextDueDate || getNextFutureDueDate(
+      const baseDueDate = item.nextDueDate || getNextFutureDueDate(
         item.date, 
         item.recurrence!,
         isWeek ? item.recurrenceDayOfWeek : undefined,
         isMonth ? item.recurrenceDayOfMonth : undefined
       );
 
-      // Self-healing / reconciliation: if a completed payment was logged (e.g. today)
-      // and the stored nextDueDate jumped multiple cycles ahead (e.g. 28 days instead of 14),
-      // reconcile effectiveDueDate to exactly 1 cycle from that latest payment.
-      if (latestPaymentDate && item.recurrence && item.recurrence !== 'none') {
-        const expectedNextFromPayment = computeNextDueDate(
-          latestPaymentDate,
-          item.recurrence,
-          isWeek ? item.recurrenceDayOfWeek : undefined,
-          isMonth ? item.recurrenceDayOfMonth : undefined
-        );
-        if (effectiveDueDate > expectedNextFromPayment) {
-          effectiveDueDate = expectedNextFromPayment;
-        }
-      }
+      // Reconcile against latest payment and advance past any due date that already has a completed record
+      const effectiveDueDate = reconcileEffectiveDueDate(
+        baseDueDate,
+        item.recurrence!,
+        completedDates,
+        latestPaymentDate,
+        isWeek ? item.recurrenceDayOfWeek : undefined,
+        isMonth ? item.recurrenceDayOfMonth : undefined
+      );
 
       const dueInfo = getRecurrenceDueInfo(effectiveDueDate, undefined, liveTick);
       return {
@@ -1914,8 +2061,19 @@ export const App: React.FC = () => {
                   </button>
                 </div>
 
-                <div className="text-[11px] text-[var(--text-secondary)]">
-                  Pick a banner below to assign or remove selected transactions
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button
+                    type="button"
+                    disabled={selectedTxIds.size === 0}
+                    onClick={() => setIsKeepExportOpen(true)}
+                    className="px-3 py-1.5 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-400 hover:bg-amber-500/25 disabled:opacity-40 text-xs font-semibold flex items-center gap-1.5 transition-all"
+                  >
+                    <FileText className="w-3.5 h-3.5" />
+                    Export to Keep
+                  </button>
+                  <span className="text-[11px] text-[var(--text-secondary)]">
+                    or pick a banner below to assign/remove
+                  </span>
                 </div>
               </div>
 
@@ -2327,6 +2485,15 @@ export const App: React.FC = () => {
                                       </button>
                                       <button
                                         type="button"
+                                        onClick={(e) => { e.stopPropagation(); setRepeatDateTx(tx); }}
+                                        className="p-1.5 rounded-lg hover:bg-purple-500/10 text-[var(--text-secondary)] hover:text-purple-400 transition-colors cursor-pointer"
+                                        title="Repeat on a specific date"
+                                        aria-label="Repeat on a specific date"
+                                      >
+                                        <CalendarPlus className="w-3.5 h-3.5" />
+                                      </button>
+                                      <button
+                                        type="button"
                                         onClick={(e) => { e.stopPropagation(); setEditingTx(tx); setIsTxModalOpen(true); }}
                                         className="p-1.5 rounded-lg hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors cursor-pointer"
                                         title="Edit transaction"
@@ -2461,12 +2628,44 @@ export const App: React.FC = () => {
         onUpdateState={handleUpdateDataState}
         initialTab={sharedKeepText ? 'keep' : importExportInitialTab}
         initialKeepText={sharedKeepText || undefined}
+        autoBackupSettings={autoBackupSettings}
+        onUpdateAutoBackupSettings={setAutoBackupSettings}
+        onManualBackupSuccess={handleManualBackupRecorded}
       />
 
       <SyncModal
         isOpen={isSyncModalOpen}
         onClose={() => setIsSyncModalOpen(false)}
       />
+
+      <RepeatDateModal
+        isOpen={Boolean(repeatDateTx)}
+        transaction={repeatDateTx}
+        todayStr={getLocalDateString(liveTick)}
+        onClose={() => setRepeatDateTx(null)}
+        onConfirm={handleRepeatTransactionOnDate}
+      />
+
+      <KeepExportModal
+        isOpen={isKeepExportOpen}
+        transactions={dataState.transactions.filter(tx => selectedTxIds.has(tx.id))}
+        paymentModes={dataState.paymentModes}
+        onClose={() => setIsKeepExportOpen(false)}
+        onCopied={(count) => {
+          setToastMessage(`Copied ${count} ${count === 1 ? 'transaction' : 'transactions'} in Google Keep format`);
+          setTimeout(() => setToastMessage(null), 2500);
+        }}
+      />
+
+      {/* Pending Folder Permission Prompt for Due Auto-Backup */}
+      {pendingBackupPrompt && (
+        <button
+          onClick={() => triggerAutoBackup(dataStateRef.current, autoBackupSettingsRef.current, true)}
+          className="fixed bottom-20 right-6 z-50 px-4 py-2.5 rounded-xl glass-panel border border-amber-500/50 text-xs font-semibold text-amber-300 flex items-center gap-2 shadow-2xl backdrop-blur-md hover:border-amber-400 transition-colors cursor-pointer"
+        >
+          <span>Auto-backup due — Click to authorize folder & save</span>
+        </button>
+      )}
 
       {/* Toast Notification */}
       {toastMessage && (

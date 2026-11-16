@@ -14,7 +14,10 @@ import {
   FolderCheck,
   FolderX,
   History,
-  FileCheck2
+  FileCheck2,
+  Clock,
+  Activity,
+  Trash2
 } from 'lucide-react';
 import { ExpenseDataState, Transaction } from '../types/expense';
 import { 
@@ -33,8 +36,16 @@ import {
   getLocalExportsList, 
   readLinkedExportFile,
   ExportFileInfo,
-  isFileSystemAccessSupported
+  isFileSystemAccessSupported,
+  isAutoBackupFilename
 } from '../services/exportService';
+import {
+  AutoBackupSettings,
+  DEFAULT_AUTO_BACKUP_SETTINGS,
+  getAutoBackupSettings,
+  saveAutoBackupSettings,
+  ScheduleFrequency
+} from '../services/autoBackupService';
 
 interface ImportExportModalProps {
   isOpen: boolean;
@@ -43,6 +54,9 @@ interface ImportExportModalProps {
   onUpdateState: (newState: ExpenseDataState) => void;
   initialTab?: 'json' | 'keep' | 'danger';
   initialKeepText?: string;
+  autoBackupSettings?: AutoBackupSettings;
+  onUpdateAutoBackupSettings?: (settings: AutoBackupSettings) => void;
+  onManualBackupSuccess?: () => void;
 }
 
 export const ImportExportModal: React.FC<ImportExportModalProps> = ({
@@ -51,7 +65,10 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
   currentState,
   onUpdateState,
   initialTab,
-  initialKeepText
+  initialKeepText,
+  autoBackupSettings: propAutoSettings,
+  onUpdateAutoBackupSettings,
+  onManualBackupSuccess
 }) => {
   const [activeTab, setActiveTab] = useState<'json' | 'keep' | 'danger'>(initialTab || 'json');
   const [importMode, setImportMode] = useState<'replace' | 'merge'>('merge');
@@ -64,9 +81,31 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
   const [exportsList, setExportsList] = useState<ExportFileInfo[]>([]);
   const [isSavingExport, setIsSavingExport] = useState(false);
 
+  // Automated backup settings
+  const [localAutoSettings, setLocalAutoSettings] = useState<AutoBackupSettings>(
+    propAutoSettings || DEFAULT_AUTO_BACKUP_SETTINGS
+  );
+
+  useEffect(() => {
+    if (propAutoSettings) {
+      setLocalAutoSettings(propAutoSettings);
+    }
+  }, [propAutoSettings]);
+
+  const updateAutoSetting = async (patch: Partial<AutoBackupSettings>) => {
+    const next = { ...localAutoSettings, ...patch };
+    setLocalAutoSettings(next);
+    const saved = await saveAutoBackupSettings(next);
+    setLocalAutoSettings(saved);
+    onUpdateAutoBackupSettings?.(saved);
+  };
+
   useEffect(() => {
     if (isOpen) {
       loadLinkedFolderStatus();
+      if (!propAutoSettings) {
+        getAutoBackupSettings().then(setLocalAutoSettings);
+      }
       if (initialTab) {
         setActiveTab(initialTab);
       }
@@ -118,6 +157,7 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
       const res = await saveExportToLocal(currentState);
       if (res.success) {
         setImportStatus(`Backup successfully saved: ${res.filename} (${res.method === 'linked_folder' ? 'Saved to exports/ folder' : res.method})`);
+        onManualBackupSuccess?.();
         const files = await getLocalExportsList();
         setExportsList(files);
       } else {
@@ -156,6 +196,7 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
 
   const handleStandardDownload = () => {
     exportToJsonFile(currentState);
+    onManualBackupSuccess?.();
     setImportStatus('Backup JSON downloaded successfully!');
   };
 
@@ -418,7 +459,14 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
                     {exportsList.slice(0, 5).map(f => (
                       <div key={f.filename} className="flex items-center justify-between p-2 rounded-lg bg-[var(--bg-primary)]/60 text-xs border border-[var(--border-light)]/50">
                         <div className="truncate mr-2">
-                          <span className="font-medium text-[var(--text-primary)] font-mono text-[11px] block truncate">{f.filename}</span>
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-medium text-[var(--text-primary)] font-mono text-[11px] truncate">{f.filename}</span>
+                            {isAutoBackupFilename(f.filename) && (
+                              <span className="text-[9px] px-1.5 py-0.2 rounded bg-[var(--accent-bg)] text-[var(--accent)] font-semibold uppercase shrink-0">
+                                Auto
+                              </span>
+                            )}
+                          </div>
                           <span className="text-[10px] text-[var(--text-secondary)]">
                             {new Date(f.modifiedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} • {(f.size / 1024).toFixed(1)} KB
                           </span>
@@ -434,6 +482,213 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
                   </div>
                 </div>
               )}
+            </div>
+
+            {/* Automated Backup Settings Card */}
+            <div className="p-4 rounded-xl bg-[var(--bg-secondary)] border border-[var(--border-light)] space-y-3.5">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <div>
+                  <h4 className="text-sm font-semibold text-[var(--text-primary)]">Automated Backups</h4>
+                  <p className="text-xs text-[var(--text-secondary)]">
+                    Last backup:{' '}
+                    <span className="text-[var(--text-primary)] font-medium">
+                      {localAutoSettings.lastBackupAt
+                        ? new Date(localAutoSettings.lastBackupAt).toLocaleString([], {
+                            month: 'short',
+                            day: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          })
+                        : 'Never'}
+                    </span>
+                    {' • '}
+                    <span>{localAutoSettings.transactionsSinceLastBackup} tx since last backup</span>
+                  </p>
+                </div>
+              </div>
+
+              {/* 1. Scheduled Backup Switch */}
+              <div className="p-3 rounded-lg bg-[var(--bg-primary)]/50 border border-[var(--border-light)]/60 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Clock className="w-4 h-4 text-[var(--accent)]" />
+                    <div>
+                      <div className="text-xs font-semibold text-[var(--text-primary)]">Scheduled Backup</div>
+                      <div className="text-[11px] text-[var(--text-secondary)]">Automatically back up on a recurring schedule</div>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={localAutoSettings.scheduledEnabled}
+                    onClick={() => updateAutoSetting({ scheduledEnabled: !localAutoSettings.scheduledEnabled })}
+                    className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
+                      localAutoSettings.scheduledEnabled ? 'bg-[var(--accent)]' : 'bg-[var(--border-light)]'
+                    }`}
+                  >
+                    <span
+                      className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow transition ${
+                        localAutoSettings.scheduledEnabled ? 'translate-x-4' : 'translate-x-0'
+                      }`}
+                    />
+                  </button>
+                </div>
+
+                {localAutoSettings.scheduledEnabled && (
+                  <div className="flex items-center gap-2 flex-wrap pt-1 text-xs">
+                    <select
+                      value={localAutoSettings.scheduleFrequency}
+                      onChange={(e) => updateAutoSetting({ scheduleFrequency: e.target.value as ScheduleFrequency })}
+                      className="apple-input py-1 px-2 text-xs w-auto"
+                    >
+                      <option value="daily">Daily</option>
+                      <option value="weekly">Weekly</option>
+                      <option value="custom">Custom interval</option>
+                    </select>
+
+                    {localAutoSettings.scheduleFrequency === 'weekly' && (
+                      <select
+                        value={localAutoSettings.scheduleWeeklyDay}
+                        onChange={(e) => updateAutoSetting({ scheduleWeeklyDay: Number(e.target.value) })}
+                        className="apple-input py-1 px-2 text-xs w-auto"
+                      >
+                        <option value={0}>Sunday</option>
+                        <option value={1}>Monday</option>
+                        <option value={2}>Tuesday</option>
+                        <option value={3}>Wednesday</option>
+                        <option value={4}>Thursday</option>
+                        <option value={5}>Friday</option>
+                        <option value={6}>Saturday</option>
+                      </select>
+                    )}
+
+                    {(localAutoSettings.scheduleFrequency === 'daily' || localAutoSettings.scheduleFrequency === 'weekly') && (
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[11px] text-[var(--text-secondary)]">at</span>
+                        <input
+                          type="time"
+                          value={localAutoSettings.scheduleTime}
+                          onChange={(e) => updateAutoSetting({ scheduleTime: e.target.value })}
+                          className="apple-input py-1 px-2 text-xs w-auto"
+                        />
+                      </div>
+                    )}
+
+                    {localAutoSettings.scheduleFrequency === 'custom' && (
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[11px] text-[var(--text-secondary)]">every</span>
+                        <input
+                          type="number"
+                          min={1}
+                          max={365}
+                          value={localAutoSettings.customIntervalValue}
+                          onChange={(e) => updateAutoSetting({ customIntervalValue: Math.max(1, Number(e.target.value) || 1) })}
+                          className="apple-input py-1 px-2 text-xs w-16"
+                        />
+                        <select
+                          value={localAutoSettings.customIntervalUnit}
+                          onChange={(e) => updateAutoSetting({ customIntervalUnit: e.target.value as 'hours' | 'days' })}
+                          className="apple-input py-1 px-2 text-xs w-auto"
+                        >
+                          <option value="hours">Hours</option>
+                          <option value="days">Days</option>
+                        </select>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* 2. Dynamic Transaction-Count Backup Switch */}
+              <div className="p-3 rounded-lg bg-[var(--bg-primary)]/50 border border-[var(--border-light)]/60 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Activity className="w-4 h-4 text-emerald-400" />
+                    <div>
+                      <div className="text-xs font-semibold text-[var(--text-primary)]">Dynamic Activity Backup</div>
+                      <div className="text-[11px] text-[var(--text-secondary)]">Back up automatically after a set number of transactions</div>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={localAutoSettings.countEnabled}
+                    onClick={() => updateAutoSetting({ countEnabled: !localAutoSettings.countEnabled })}
+                    className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
+                      localAutoSettings.countEnabled ? 'bg-[var(--accent)]' : 'bg-[var(--border-light)]'
+                    }`}
+                  >
+                    <span
+                      className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow transition ${
+                        localAutoSettings.countEnabled ? 'translate-x-4' : 'translate-x-0'
+                      }`}
+                    />
+                  </button>
+                </div>
+
+                {localAutoSettings.countEnabled && (
+                  <div className="flex items-center justify-between gap-2 flex-wrap pt-1 text-xs">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[11px] text-[var(--text-secondary)]">Back up every</span>
+                      <input
+                        type="number"
+                        min={1}
+                        max={1000}
+                        value={localAutoSettings.countThreshold}
+                        onChange={(e) => updateAutoSetting({ countThreshold: Math.max(1, Number(e.target.value) || 1) })}
+                        className="apple-input py-1 px-2 text-xs w-16"
+                      />
+                      <span className="text-[11px] text-[var(--text-secondary)]">transactions</span>
+                    </div>
+                    <span className="text-[11px] text-[var(--accent)] font-medium">
+                      {localAutoSettings.transactionsSinceLastBackup} / {localAutoSettings.countThreshold}
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              {/* 3. Auto-Cleanup / Retention Switch */}
+              <div className="p-3 rounded-lg bg-[var(--bg-primary)]/50 border border-[var(--border-light)]/60 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Trash2 className="w-4 h-4 text-amber-400" />
+                    <div>
+                      <div className="text-xs font-semibold text-[var(--text-primary)]">Auto-Cleanup Old Auto-Backups</div>
+                      <div className="text-[11px] text-[var(--text-secondary)]">Safely prune old `-auto` files without touching manual backups</div>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={localAutoSettings.cleanupEnabled}
+                    onClick={() => updateAutoSetting({ cleanupEnabled: !localAutoSettings.cleanupEnabled })}
+                    className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors ${
+                      localAutoSettings.cleanupEnabled ? 'bg-[var(--accent)]' : 'bg-[var(--border-light)]'
+                    }`}
+                  >
+                    <span
+                      className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow transition ${
+                        localAutoSettings.cleanupEnabled ? 'translate-x-4' : 'translate-x-0'
+                      }`}
+                    />
+                  </button>
+                </div>
+
+                {localAutoSettings.cleanupEnabled && (
+                  <div className="flex items-center gap-1.5 pt-1 text-xs">
+                    <span className="text-[11px] text-[var(--text-secondary)]">Keep only the last</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={500}
+                      value={localAutoSettings.cleanupRetentionCount}
+                      onChange={(e) => updateAutoSetting({ cleanupRetentionCount: Math.max(1, Number(e.target.value) || 1) })}
+                      className="apple-input py-1 px-2 text-xs w-16"
+                    />
+                    <span className="text-[11px] text-[var(--text-secondary)]">auto-backups</span>
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* Import Backup File */}

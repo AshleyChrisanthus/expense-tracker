@@ -11,6 +11,7 @@ const testFiles = [
   'path:/tier1-features/storage-crud.test.js',
   'path:/tier1-features/recurrence-engine.test.js',
   'path:/tier1-features/keep-notes-parser.test.js',
+  'path:/tier1-features/keep-export.test.js',
   'path:/tier1-features/export-backup-service.test.js',
   'path:/tier1-features/theme-presets.test.js',
   'path:/tier1-features/accounting-analytics.test.js',

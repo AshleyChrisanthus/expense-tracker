@@ -11,6 +11,7 @@ export interface ExportResult {
   filePath?: string;
   fileSize?: number;
   savedAt?: string;
+  needsPermission?: boolean;
   error?: string;
 }
 
@@ -93,12 +94,22 @@ export async function unlinkBackupDirectory(): Promise<void> {
 
 /**
  * Generate timestamped backup filename.
+ * Automated backups are tagged with `-auto` so retention cleanup never touches manual backups.
  */
-export function generateBackupFilename(): string {
+export function generateBackupFilename(isAuto = false): string {
   const now = new Date();
   const pad = (n: number): string => String(n).padStart(2, '0');
   const timestamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
-  return `expenses-backup-${timestamp}.json`;
+  return isAuto
+    ? `expenses-backup-${timestamp}-auto.json`
+    : `expenses-backup-${timestamp}.json`;
+}
+
+/**
+ * Check whether a backup filename is an automated backup (`-auto.json`).
+ */
+export function isAutoBackupFilename(filename: string): boolean {
+  return /^expenses-backup-.*-auto\.json$/i.test(filename);
 }
 
 /**
@@ -273,4 +284,150 @@ export async function readLinkedExportFile(filename: string): Promise<ExpenseDat
   const file = await fileHandle.getFile();
   const text = await file.text();
   return JSON.parse(text);
+}
+
+/**
+ * Save an automated backup silently to the linked folder or local Vite server.
+ * Never falls back to Save File Picker or browser download so background triggers
+ * don't spam the Downloads folder or open unexpected dialogs.
+ */
+export async function saveAutoBackupSilent(
+  state: ExpenseDataState,
+  allowRequestPermission = false
+): Promise<ExportResult> {
+  const filename = generateBackupFilename(true);
+  const content = JSON.stringify(state, null, 2);
+
+  // 1. Try Linked Directory Handle
+  if (isFileSystemAccessSupported()) {
+    try {
+      const setting = await db.settings.get(BACKUP_DIR_SETTING_KEY);
+      const dirHandle = setting?.value as FileSystemDirectoryHandle | undefined;
+      if (dirHandle) {
+        let perm = await dirHandle.queryPermission({ mode: 'readwrite' });
+        if (perm !== 'granted' && allowRequestPermission) {
+          perm = await dirHandle.requestPermission({ mode: 'readwrite' });
+        }
+        if (perm === 'granted') {
+          const fileHandle = await dirHandle.getFileHandle(filename, { create: true });
+          const writable = await fileHandle.createWritable();
+          await writable.write(content);
+          await writable.close();
+
+          return {
+            success: true,
+            method: 'linked_folder',
+            filename,
+            folderName: dirHandle.name,
+            filePath: `${dirHandle.name}/${filename}`,
+            fileSize: content.length,
+            savedAt: new Date().toISOString()
+          };
+        }
+
+        // Folder is linked, but browser needs a user gesture to re-grant permission
+        return {
+          success: false,
+          method: 'linked_folder',
+          filename,
+          folderName: dirHandle.name,
+          needsPermission: true,
+          error: 'Folder write permission requires re-authorization.'
+        };
+      }
+    } catch (err: any) {
+      console.warn('Silent directory backup failed:', err);
+    }
+  }
+
+  // 2. Try Local Vite Server endpoint (if running npm run dev)
+  try {
+    const res = await fetch('/api/export', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename, payload: state })
+    });
+    if (res.ok) {
+      const serverResult = await res.json();
+      return {
+        success: true,
+        filename,
+        ...serverResult,
+        method: 'local_server'
+      };
+    }
+  } catch {
+    // Server not running
+  }
+
+  return {
+    success: false,
+    method: 'linked_folder',
+    filename,
+    error: 'No linked backup folder or local server available.'
+  };
+}
+
+/**
+ * Delete a backup file from the linked folder or local server.
+ */
+export async function deleteExportFile(filename: string): Promise<boolean> {
+  // 1. Try Linked Directory Handle
+  if (isFileSystemAccessSupported()) {
+    try {
+      const setting = await db.settings.get(BACKUP_DIR_SETTING_KEY);
+      const dirHandle = setting?.value as FileSystemDirectoryHandle | undefined;
+      if (dirHandle) {
+        const perm = await dirHandle.queryPermission({ mode: 'readwrite' });
+        if (perm === 'granted') {
+          await dirHandle.removeEntry(filename);
+          return true;
+        }
+      }
+    } catch (err) {
+      console.warn(`Could not delete ${filename} from linked folder:`, err);
+    }
+  }
+
+  // 2. Fallback to Local Vite Server
+  try {
+    const res = await fetch('/api/exports/delete', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename })
+    });
+    if (res.ok) return true;
+  } catch {
+    // Server not running
+  }
+
+  return false;
+}
+
+/**
+ * Delete oldest `-auto.json` backups beyond `retentionCount`,
+ * leaving all manual backups untouched.
+ */
+export async function cleanupOldAutoBackups(retentionCount: number): Promise<string[]> {
+  const keepCount = Math.max(1, Math.floor(retentionCount));
+  const files = await getLocalExportsList();
+  const autoFiles = files
+    .filter(f => isAutoBackupFilename(f.filename))
+    .sort((a, b) => {
+      const timeDiff = new Date(b.modifiedAt).getTime() - new Date(a.modifiedAt).getTime();
+      if (timeDiff !== 0) return timeDiff;
+      return b.filename.localeCompare(a.filename);
+    });
+
+  if (autoFiles.length <= keepCount) {
+    return [];
+  }
+
+  const toDelete = autoFiles.slice(keepCount);
+  const deleted: string[] = [];
+  for (const file of toDelete) {
+    const ok = await deleteExportFile(file.filename);
+    if (ok) deleted.push(file.filename);
+  }
+  return deleted;
 }

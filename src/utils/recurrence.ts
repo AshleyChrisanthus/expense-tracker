@@ -1,4 +1,4 @@
-import type { RecurrenceRule } from '../types/expense';
+import type { RecurrenceRule, Transaction } from '../types/expense';
 import { getLocalDateString } from './timezone';
 
 export const WEEKDAYS = [
@@ -361,5 +361,116 @@ export function formatDueCountdown(
   return {
     text: `In ${dueInfo.diffDays}d • ${dueInfo.formattedDueDate}`,
     status: dueInfo.isDueSoon ? 'soon' : 'future'
+  };
+}
+
+/**
+ * Checks whether a completed transaction for the given normalized recurring key
+ * already exists on the specified target date (YYYY-MM-DD).
+ */
+export function hasExistingRecurringPaymentOnDate(
+  transactions: ReadonlyArray<Pick<Transaction, 'date' | 'description' | 'descriptionTemplate' | 'status'>>,
+  recurringKey: string,
+  targetDate: string
+): boolean {
+  if (!recurringKey || !targetDate) return false;
+  return transactions.some(
+    t =>
+      (!t.status || t.status === 'completed') &&
+      t.date === targetDate &&
+      normalizeRecurringKey(t.description, t.descriptionTemplate) === recurringKey
+  );
+}
+
+/**
+ * Reconciles a recurring item's effective due date against completed payments:
+ * 1. If the stored due date jumped ahead of 1 cycle from the latest payment, pull it back.
+ * 2. If a completed payment was already made on or after the due date, advance to 1 cycle
+ *    after that latest payment so a stale due date never stays stuck as overdue.
+ * 3. If a completed payment already exists on the resulting due date, advance past any
+ *    already-paid due dates so the item does not falsely show as unpaid/overdue.
+ */
+export function reconcileEffectiveDueDate(
+  baseDueDate: string,
+  rule: RecurrenceRule,
+  completedDates?: ReadonlySet<string>,
+  latestPaymentDate?: string,
+  dayOfWeek?: number,
+  dayOfMonth?: number
+): string {
+  if (!baseDueDate || !rule || rule === 'none' || rule === 'as_needed') {
+    return baseDueDate;
+  }
+
+  let effectiveDueDate = baseDueDate;
+
+  if (latestPaymentDate) {
+    const expectedNextFromPayment = computeNextDueDate(
+      latestPaymentDate,
+      rule,
+      dayOfWeek,
+      dayOfMonth
+    );
+    if (effectiveDueDate > expectedNextFromPayment || latestPaymentDate >= effectiveDueDate) {
+      effectiveDueDate = expectedNextFromPayment;
+    }
+  }
+
+  if (completedDates && completedDates.size > 0) {
+    let guard = 0;
+    while (completedDates.has(effectiveDueDate) && guard < 52) {
+      const next = computeNextDueDate(effectiveDueDate, rule, dayOfWeek, dayOfMonth);
+      if (next <= effectiveDueDate) break;
+      effectiveDueDate = next;
+      guard++;
+    }
+  }
+
+  return effectiveDueDate;
+}
+
+/**
+ * Builds a new completed transaction cloned from `tx` for the given `targetDate` (YYYY-MM-DD),
+ * optionally overriding `amount` and/or `description`,
+ * and recalculating `nextDueDate` relative to `targetDate` when `tx` has a scheduled recurrence.
+ */
+export function buildRepeatedTransaction(
+  tx: Transaction,
+  targetDate: string,
+  nowMs: number = Date.now(),
+  overrideAmount?: number,
+  overrideDescription?: string
+): Transaction {
+  const isWeek = tx.recurrence === 'weekly' || tx.recurrence === 'biweekly';
+  const isMonth = tx.recurrence === 'monthly';
+  const isScheduled = tx.recurrence && tx.recurrence !== 'none' && tx.recurrence !== 'as_needed';
+
+  const hasOverrideAmount = overrideAmount !== undefined && Number.isFinite(overrideAmount) && overrideAmount >= 0;
+  const finalAmount = hasOverrideAmount ? overrideAmount : tx.amount;
+
+  const trimmedOverrideDesc = overrideDescription?.trim();
+  const hasExplicitDescChange = Boolean(trimmedOverrideDesc && trimmedOverrideDesc !== tx.description);
+  const finalDescription = hasExplicitDescChange
+    ? trimmedOverrideDesc!
+    : hasOverrideAmount && (tx.descriptionTemplate || hasEmbeddedAmountTemplate(tx.description))
+      ? formatTemplatedDescription(tx.descriptionTemplate || tx.description, finalAmount, tx.amount)
+      : tx.description;
+
+  return {
+    ...tx,
+    id: 'tx-' + nowMs,
+    date: targetDate,
+    amount: finalAmount,
+    description: finalDescription,
+    status: 'completed',
+    nextDueDate: isScheduled
+      ? computeNextDueDate(
+          targetDate,
+          tx.recurrence!,
+          isWeek ? tx.recurrenceDayOfWeek : undefined,
+          isMonth ? tx.recurrenceDayOfMonth : undefined
+        )
+      : undefined,
+    createdAt: nowMs
   };
 }
