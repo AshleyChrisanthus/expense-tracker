@@ -28,7 +28,7 @@ A sleek, Apple-inspired glassmorphism expense tracking web app built with React,
   - Expense status support (Completed vs Cancelled / Memo like uncollected amounts).
 - 📅 **Google Keep Inspired Expense Feed**:
   - Automatically groups transactions by date with daily totals.
-  - Pre-seeded with March 2024 expenses from Google Keep notes.
+  - Pre-seeded with sample data to explore out of the box.
   - Instant search across descriptions, categories, amounts, and notes.
 - 📥 **JSON Export & Import & Google Keep Parser**:
   - 1-click JSON backup export (`expenses-backup-YYYY-MM-DD.json`).
