@@ -361,7 +361,7 @@ export const MobileRecurringView: React.FC<MobileRecurringViewProps> = ({
             // CARD VARIANT C: As-Needed / Flexible Smart Template Card
             // =========================================================================
             if (isAsNeeded) {
-              const isRemittance = /remittance|amma|family|overseas|transfer|wire/i.test(item.description);
+              const isRemittance = /remittance|family|overseas|transfer|wire/i.test(item.description);
               const subtitle = item.notes || (isRemittance ? 'Family remittance template' : 'Flexible smart template');
               const actionLabel = isRemittance ? '➢ Log Remittance Today' : '➢ Log Template Payment Today';
 

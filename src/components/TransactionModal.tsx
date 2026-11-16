@@ -682,21 +682,21 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                     rows={2}
                     value={keepSnippetInput}
                     onChange={(e) => setKeepSnippetInput(e.target.value)}
-                    placeholder="e.g. 59.87$ - from bank - OVHC (Bupa Insurance)&#10;or Transferred 1000$ from forex to bank(+7.5$ charge)"
+                    placeholder="e.g. 42.50$ - from bank - Health Insurance&#10;or Transferred 500$ from forex to bank(+5$ fee)"
                     className="w-full bg-[var(--input-bg)] border border-[var(--input-border)] rounded-lg p-2 text-xs text-[var(--text-primary)] placeholder-neutral-500 outline-none focus:border-amber-400"
                   />
                   <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-1">
                       <button
                         type="button"
-                        onClick={() => setKeepSnippetInput('59.87$ - from bank - OVHC (Bupa Insurance)')}
+                        onClick={() => setKeepSnippetInput('42.50$ - from bank - Health Insurance')}
                         className="text-[10px] px-2 py-0.5 rounded bg-amber-500/10 text-amber-300 hover:bg-amber-500/20"
                       >
-                        Sample OVHC
+                        Sample Insurance
                       </button>
                       <button
                         type="button"
-                        onClick={() => setKeepSnippetInput('170$-from bank- room rent')}
+                        onClick={() => setKeepSnippetInput('250$-from bank- monthly rent')}
                         className="text-[10px] px-2 py-0.5 rounded bg-amber-500/10 text-amber-300 hover:bg-amber-500/20"
                       >
                         Sample Rent
@@ -826,7 +826,7 @@ export const TransactionModal: React.FC<TransactionModalProps> = ({
                       step="0.01"
                       value={fee}
                       onChange={(e) => setFee(e.target.value)}
-                      placeholder="e.g. 7.50"
+                      placeholder="e.g. 5.00"
                       className="apple-input text-xs"
                     />
                   </div>

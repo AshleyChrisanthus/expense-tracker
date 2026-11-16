@@ -744,7 +744,7 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
               </label>
               <button
                 type="button"
-                onClick={() => handleParseKeep(`March 31, 2024\n170$-from bank- room rent\n\nMarch 28, 2024\n2.03$-from forex- convenience store coffee\n4.49$-from forex- aldi grocery(City)\n\nMarch 14, 2024\nTransferred 1000$ from forex to bank(+7.5$ charge)`)}
+                onClick={() => handleParseKeep(`January 15, 2025\n250$-from bank- monthly rent\n\nJanuary 14, 2025\n4.50$-from cash- morning coffee\n32.40$-from bank- weekly groceries\n\nJanuary 10, 2025\nTransferred 500$ from forex to bank(+5$ fee)`)}
                 className="text-[11px] text-[var(--accent)] hover:underline flex items-center gap-1"
               >
                 <Copy className="w-3 h-3" /> Paste example
@@ -755,7 +755,7 @@ export const ImportExportModal: React.FC<ImportExportModalProps> = ({
               rows={4}
               value={keepText}
               onChange={(e) => handleParseKeep(e.target.value)}
-              placeholder="e.g.&#10;March 31, 2024&#10;170$-from bank- room rent&#10;2.03$-from forex- convenience store coffee&#10;Transferred 1000$ from forex to bank(+7.5$ charge)"
+              placeholder="e.g.&#10;January 15, 2025&#10;250$-from bank- monthly rent&#10;4.50$-from cash- morning coffee&#10;Transferred 500$ from forex to bank(+5$ fee)"
               className="apple-input font-mono text-xs"
             />
 

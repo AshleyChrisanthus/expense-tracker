@@ -23,12 +23,12 @@ A sleek, Apple-inspired glassmorphism expense tracking web app built with React,
   - Add, edit, rename, recolor, and customize payment modes with custom icons and color swatches.
   - Filter transactions and view real-time spending breakdowns by payment mode.
 - 🔄 **Transfers & Income Support**:
-  - Record account transfers (e.g. from Forex Card to Bank Account) with transfer fees tracking (e.g. $7.50 fee).
+  - Record account transfers between accounts with optional transfer fee tracking.
   - Income and deposit tracking.
-  - Expense status support (Completed vs Cancelled / Memo like uncollected amounts).
+  - Expense status support (Completed vs Cancelled / Memo).
 - 📅 **Google Keep Inspired Expense Feed**:
   - Automatically groups transactions by date with daily totals.
-  - Pre-seeded with sample data to explore out of the box.
+  - Starts clean with pre-configured accounts and categories.
   - Instant search across descriptions, categories, amounts, and notes.
 - 📥 **JSON Export & Import & Google Keep Parser**:
   - 1-click JSON backup export (`expenses-backup-YYYY-MM-DD.json`).
