@@ -722,6 +722,19 @@ export const App: React.FC = () => {
     }
   };
 
+  const handleToggleDaySelection = (dayItems: Transaction[]) => {
+    const allSelected = dayItems.length > 0 && dayItems.every(t => selectedTxIds.has(t.id));
+    setSelectedTxIds(prev => {
+      const next = new Set(prev);
+      if (allSelected) {
+        dayItems.forEach(t => next.delete(t.id));
+      } else {
+        dayItems.forEach(t => next.add(t.id));
+      }
+      return next;
+    });
+  };
+
   const handleBatchAssignBanner = async (bannerId: string) => {
     if (selectedTxIds.size === 0) return;
 
@@ -2022,6 +2035,20 @@ export const App: React.FC = () => {
                 )}
               </div>
 
+              {/* Export to Keep (near Select Mode) */}
+              {isSelectionMode && (
+                <button
+                  type="button"
+                  disabled={selectedTxIds.size === 0}
+                  onClick={() => setIsKeepExportOpen(true)}
+                  className="px-3 py-1.5 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-400 hover:bg-amber-500/25 disabled:opacity-40 text-xs font-semibold flex items-center gap-1.5 transition-all"
+                  title="Export selected transactions to Google Keep format"
+                >
+                  <FileText className="w-3.5 h-3.5" />
+                  Export to Keep
+                </button>
+              )}
+
               {/* Toggle Selection Mode */}
               <button
                 type="button"
@@ -2061,20 +2088,9 @@ export const App: React.FC = () => {
                   </button>
                 </div>
 
-                <div className="flex items-center gap-2 flex-wrap">
-                  <button
-                    type="button"
-                    disabled={selectedTxIds.size === 0}
-                    onClick={() => setIsKeepExportOpen(true)}
-                    className="px-3 py-1.5 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-400 hover:bg-amber-500/25 disabled:opacity-40 text-xs font-semibold flex items-center gap-1.5 transition-all"
-                  >
-                    <FileText className="w-3.5 h-3.5" />
-                    Export to Keep
-                  </button>
-                  <span className="text-[11px] text-[var(--text-secondary)]">
-                    or pick a banner below to assign/remove
-                  </span>
-                </div>
+                <span className="text-[11px] text-[var(--text-secondary)]">
+                  Pick a banner below to assign/remove
+                </span>
               </div>
 
               {/* Banner assignment buttons */}
@@ -2178,11 +2194,39 @@ export const App: React.FC = () => {
 
                 {/* Right side: Date Headers and Transaction Cards */}
                 <div className="flex-1 min-w-0 space-y-6">
-                  {groupedTransactions.map((group) => (
+                  {groupedTransactions.map((group) => {
+                    const allDaySelected = group.items.length > 0 && group.items.every(t => selectedTxIds.has(t.id));
+                    const someDaySelected = group.items.some(t => selectedTxIds.has(t.id)) && !allDaySelected;
+                    return (
                     <div key={group.date} className="space-y-2.5">
                       {/* Date Header Group with Day Total */}
                       <div className="flex items-center justify-between px-2 pt-2">
                         <div className="flex items-center gap-2">
+                          {isSelectionMode && (
+                            <button
+                              type="button"
+                              onClick={() => handleToggleDaySelection(group.items)}
+                              className="shrink-0 cursor-pointer flex items-center justify-center"
+                              title={allDaySelected ? `Deselect all items on ${group.displayDate}` : `Select all items on ${group.displayDate}`}
+                              aria-label={allDaySelected ? `Deselect all items on ${group.displayDate}` : `Select all items on ${group.displayDate}`}
+                            >
+                              <div className={`w-5 h-5 rounded-full border flex items-center justify-center transition-all ${
+                                allDaySelected
+                                  ? 'bg-[var(--accent)] border-[var(--accent)] text-white shadow-sm scale-110'
+                                  : someDaySelected
+                                  ? 'border-[var(--accent)] bg-[var(--accent)]/20 text-[var(--accent)]'
+                                  : 'border-[var(--text-secondary)]/50 bg-[var(--bg-secondary)] hover:border-[var(--accent)]'
+                              }`}>
+                                {allDaySelected ? (
+                                  <Check className="w-3 h-3 stroke-[3]" />
+                                ) : someDaySelected ? (
+                                  <div className="w-2 h-0.5 rounded-full bg-[var(--accent)]" />
+                                ) : (
+                                  <div className="w-1.5 h-1.5 rounded-full bg-transparent" />
+                                )}
+                              </div>
+                            </button>
+                          )}
                           <Calendar className="w-4 h-4 text-[var(--text-secondary)]" />
                           <span className="text-sm font-semibold text-[var(--text-primary)]">
                             {group.displayDate}
@@ -2517,7 +2561,8 @@ export const App: React.FC = () => {
                         })}
                       </div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             );
